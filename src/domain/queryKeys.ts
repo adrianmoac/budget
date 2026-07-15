@@ -18,6 +18,11 @@ export const qk = {
   debtPayments: (debtId: string) => ['debtPayments', debtId] as const,
   contributions: (investmentId: string) =>
     ['contributions', { investmentId }] as const,
+  // Derived "missing this period" list from the missing_recommendations RPC (§6.1).
   recommendations: (year: number, month: number) =>
     ['recommendations', { year, month }] as const,
+  // The recommended-item templates themselves (the /recommended CRUD list). Distinct
+  // from the period-scoped derived `recommendations` key above; an app-specific
+  // consumer beyond the §6.1 matrix (like `investedThisMonth`), invalidated on CRUD.
+  recommendedItems: () => ['recommendedItems'] as const,
 } as const;

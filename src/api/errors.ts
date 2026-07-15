@@ -15,6 +15,7 @@ export type AppErrorCode =
   | 'debt_not_found'
   | 'debt_not_active'
   | 'invalid_amount'
+  | 'invalid_period'
   | 'network_error'
   | 'unexpected_error';
 
@@ -29,6 +30,7 @@ const USER_MESSAGES: Record<AppErrorCode, string> = {
   debt_not_found: 'La deuda ya no existe',
   debt_not_active: 'La deuda no está activa',
   invalid_amount: 'El monto no es válido',
+  invalid_period: 'El periodo no es válido',
   network_error: 'Sin conexión — se requiere internet',
   unexpected_error: 'Ocurrió un error inesperado',
 };
@@ -43,6 +45,7 @@ const RPC_ERROR_CODES: readonly AppErrorCode[] = [
   'debt_not_found',
   'debt_not_active',
   'invalid_amount',
+  'invalid_period',
 ];
 
 export class AppError extends Error {

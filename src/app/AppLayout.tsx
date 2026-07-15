@@ -1,9 +1,11 @@
 import {
   LayoutDashboard,
   CalendarDays,
+  CalendarRange,
   Tags,
   CreditCard,
   TrendingUp,
+  Lightbulb,
   LogOut,
   Wallet,
 } from 'lucide-react';
@@ -15,14 +17,16 @@ import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import { toast } from '@/store/toast';
 
-// Surface through Phase 5: Dashboard, Month, Categories, Debts, and Investments.
-// Later phases add their own nav entries (year, recommended).
+// Surface through Phase 6: Dashboard, Month, Year, Categories, Debts, Investments,
+// and Recommended items.
 const NAV = [
   { to: '/', label: 'Resumen', icon: LayoutDashboard, end: true },
   { to: '/month', label: 'Mes', icon: CalendarDays, end: false },
+  { to: '/year', label: 'Año', icon: CalendarRange, end: false },
   { to: '/categories', label: 'Categorías', icon: Tags, end: false },
   { to: '/debts', label: 'Deudas', icon: CreditCard, end: false },
   { to: '/investments', label: 'Inversiones', icon: TrendingUp, end: false },
+  { to: '/recommended', label: 'Recomendados', icon: Lightbulb, end: false },
 ];
 
 export function AppLayout() {

@@ -352,6 +352,10 @@ export type Database = {
         Args: { p_category_id: string }
         Returns: Record<string, unknown>
       }
+      missing_recommendations: {
+        Args: { p_month: number; p_year: number }
+        Returns: { item: Json }[]
+      }
       record_debt_payment: {
         Args: {
           p_amount_cents: number
@@ -367,6 +371,16 @@ export type Database = {
           p_type: Database["public"]["Enums"]["tx_type"]
         }
         Returns: number
+      }
+      year_summary: {
+        Args: { p_year: number }
+        Returns: {
+          balance_cents: number
+          expense_cents: number
+          income_cents: number
+          invested_cents: number
+          month: number
+        }[]
       }
     }
     Enums: {
