@@ -348,6 +348,10 @@ export type Database = {
       }
     }
     Functions: {
+      delete_category: {
+        Args: { p_category_id: string }
+        Returns: Record<string, unknown>
+      }
       signed_effect: {
         Args: {
           p_amount: number

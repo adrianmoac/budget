@@ -10,6 +10,8 @@ export type AppErrorCode =
   | 'fk_restrict_use_rpc'
   | 'check_violation'
   | 'not_authenticated'
+  | 'category_not_found'
+  | 'cannot_delete_protected_category'
   | 'network_error'
   | 'unexpected_error';
 
@@ -19,9 +21,20 @@ const USER_MESSAGES: Record<AppErrorCode, string> = {
   fk_restrict_use_rpc: 'No se puede eliminar directamente; usa la acción correspondiente',
   check_violation: 'Datos inválidos',
   not_authenticated: 'Tu sesión expiró. Inicia sesión de nuevo',
+  category_not_found: 'La categoría ya no existe',
+  cannot_delete_protected_category: 'Esta categoría no se puede eliminar',
   network_error: 'Sin conexión — se requiere internet',
   unexpected_error: 'Ocurrió un error inesperado',
 };
+
+/**
+ * RPCs raise Postgres exceptions (SQLSTATE `P0001`) whose message is a stable
+ * machine code (spec §3.7). Map the known ones; anything else is unexpected.
+ */
+const RPC_ERROR_CODES: readonly AppErrorCode[] = [
+  'category_not_found',
+  'cannot_delete_protected_category',
+];
 
 export class AppError extends Error {
   readonly code: AppErrorCode;
@@ -46,9 +59,17 @@ export class AppError extends Error {
         return new AppError('check_violation');
       case '42501': // insufficient_privilege / RLS
         return new AppError('not_authenticated');
+      case 'P0001': // raise_exception from an RPC — message carries a machine code
+        return AppError.fromRpcMessage(error.message);
       default:
         return new AppError('unexpected_error', USER_MESSAGES.unexpected_error);
     }
+  }
+
+  /** Resolve an RPC's `P0001` message to its typed code (spec §3.7). */
+  static fromRpcMessage(message: string): AppError {
+    const code = RPC_ERROR_CODES.find((c) => message.includes(c));
+    return new AppError(code ?? 'unexpected_error');
   }
 
   static fromUnknown(error: unknown): AppError {

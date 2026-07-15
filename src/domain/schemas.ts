@@ -31,6 +31,14 @@ export const loginSchema = z.object({
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+// --- Category (§4.5) ---
+// Name 1–64 chars (mirrors the DB CHECK); trimmed so trailing whitespace does
+// not smuggle in a "different" name past the UNIQUE(user_id, name) constraint.
+export const categoryFormSchema = z.object({
+  name: z.string().trim().min(1, 'Nombre requerido').max(64, 'Máximo 64 caracteres'),
+});
+export type CategoryFormInput = z.infer<typeof categoryFormSchema>;
+
 // --- EntryForm / transaction (§4.9) ---
 // The form works in pesos (a positive amount); conversion to integer centavos
 // happens on submit via `toCentavos`. `amountPesos` guards NaN/Infinity/range.
