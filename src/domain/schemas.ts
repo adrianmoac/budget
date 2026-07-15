@@ -96,3 +96,21 @@ export const paymentFormSchema = z.object({
   description: z.string().max(280, 'Máximo 280 caracteres'),
 });
 export type PaymentFormInput = z.infer<typeof paymentFormSchema>;
+
+// --- Investment vehicle (§4.7) ---
+// Name 1–80 chars (mirrors the DB CHECK); trimmed so trailing whitespace does not
+// smuggle in a "different" name past the UNIQUE(user_id, name) constraint.
+export const investmentFormSchema = z.object({
+  name: z.string().trim().min(1, 'Nombre requerido').max(80, 'Máximo 80 caracteres'),
+});
+export type InvestmentFormInput = z.infer<typeof investmentFormSchema>;
+
+// --- Investment contribution (§4.7, §3.1) ---
+// Amount entered in pesos (converted to centavos on submit, shared guard); the
+// vehicle is chosen from the user's investments.
+export const contributionFormSchema = z.object({
+  investment_id: z.string().uuid('Selecciona una inversión'),
+  amountPesos: pesosAmountSchema,
+  contrib_date: isoDateSchema,
+});
+export type ContributionFormInput = z.infer<typeof contributionFormSchema>;
