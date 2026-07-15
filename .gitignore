@@ -1,3 +1,23 @@
+# Agent / local tooling
 .claude
 beforePrompt.md
 .DS_Store
+.github
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment — never commit real secrets (see .env.example for the contract)
+.env
+.env.local
+.env.*.local
+
+# Test / coverage output
+coverage/
+
+# Supabase local artifacts
+supabase/.branches
+supabase/.temp
