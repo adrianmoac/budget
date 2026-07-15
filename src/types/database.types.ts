@@ -352,6 +352,15 @@ export type Database = {
         Args: { p_category_id: string }
         Returns: Record<string, unknown>
       }
+      record_debt_payment: {
+        Args: {
+          p_amount_cents: number
+          p_date: string
+          p_debt_id: string
+          p_description: string
+        }
+        Returns: Record<string, unknown>
+      }
       signed_effect: {
         Args: {
           p_amount: number

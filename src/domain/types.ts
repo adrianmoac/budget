@@ -24,6 +24,7 @@ export type Transaction = Tables<'transactions'>;
 export type Investment = Tables<'investments'>;
 export type InvestmentContribution = Tables<'investment_contributions'>;
 export type Debt = Tables<'debts'>;
+export type DebtPayment = Tables<'debt_payments'>;
 export type RecommendedItem = Tables<'recommended_items'>;
 
 // --- Insert / Update payloads ---

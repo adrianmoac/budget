@@ -10,6 +10,7 @@ import { TransactionTable } from '@/components/month/TransactionTable';
 import { ErrorState } from '@/components/states';
 import type { Transaction } from '@/domain/types';
 import { useCategories } from '@/hooks/useCategories';
+import { useDebts } from '@/hooks/useDebts';
 import { useInvestedThisMonth } from '@/hooks/useInvestedThisMonth';
 import { useDeleteTransaction, useMonthTransactions } from '@/hooks/useTransactions';
 import { toast } from '@/store/toast';
@@ -23,6 +24,7 @@ export function MonthView() {
 
   const txQuery = useMonthTransactions(year, month);
   const categoriesQuery = useCategories();
+  const debtsQuery = useDebts();
   const investedQuery = useInvestedThisMonth(year, month);
   const deleteMutation = useDeleteTransaction();
 
@@ -34,6 +36,12 @@ export function MonthView() {
     for (const c of categoriesQuery.data ?? []) map.set(c.id, c.name);
     return map;
   }, [categoriesQuery.data]);
+
+  const debtNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of debtsQuery.data ?? []) map.set(d.id, d.name);
+    return map;
+  }, [debtsQuery.data]);
 
   const { income, expense, incomeCents, expenseCents } = useMemo(() => {
     const rows = (txQuery.data ?? []).filter(
@@ -96,6 +104,7 @@ export function MonthView() {
               kind="income"
               transactions={income}
               categoryNameById={categoryNameById}
+              debtNameById={debtNameById}
               onEdit={setEditing}
               onDelete={setDeleting}
             />
@@ -103,6 +112,7 @@ export function MonthView() {
               kind="expense"
               transactions={expense}
               categoryNameById={categoryNameById}
+              debtNameById={debtNameById}
               onEdit={setEditing}
               onDelete={setDeleting}
             />

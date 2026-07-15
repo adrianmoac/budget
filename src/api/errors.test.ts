@@ -26,4 +26,19 @@ describe('AppError.fromPostgrest', () => {
     const err = AppError.fromPostgrest(pgError('P0001', 'something_else'));
     expect(err.code).toBe('unexpected_error');
   });
+
+  it('maps the record_debt_payment debt_not_found exception to its typed code', () => {
+    const err = AppError.fromPostgrest(pgError('P0001', 'debt_not_found'));
+    expect(err.code).toBe('debt_not_found');
+  });
+
+  it('maps the record_debt_payment debt_not_active exception to its typed code', () => {
+    const err = AppError.fromPostgrest(pgError('P0001', 'debt_not_active'));
+    expect(err.code).toBe('debt_not_active');
+  });
+
+  it('maps the record_debt_payment invalid_amount exception to its typed code', () => {
+    const err = AppError.fromPostgrest(pgError('P0001', 'invalid_amount'));
+    expect(err.code).toBe('invalid_amount');
+  });
 });
