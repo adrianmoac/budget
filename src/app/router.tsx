@@ -17,6 +17,9 @@ const Categories = lazy(() =>
   import('@/pages/Categories').then((m) => ({ default: m.Categories })),
 );
 const Debts = lazy(() => import('@/pages/Debts').then((m) => ({ default: m.Debts })));
+const Investments = lazy(() =>
+  import('@/pages/Investments').then((m) => ({ default: m.Investments })),
+);
 const Login = lazy(() => import('@/pages/Login').then((m) => ({ default: m.Login })));
 
 function Lazy({ children }: { children: React.ReactNode }) {
@@ -34,8 +37,8 @@ function Lazy({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Routes through Phase 4: dashboard (index), month view, categories, debts. Later
-// phases register /year, /investments, /recommended.
+// Routes through Phase 5: dashboard (index), month view, categories, debts,
+// investments. Later phases register /year, /recommended.
 export const router = createBrowserRouter([
   { path: '/login', element: <Lazy><Login /></Lazy>, errorElement: <RouteError /> },
   {
@@ -49,6 +52,7 @@ export const router = createBrowserRouter([
           { path: 'month', element: <Lazy><MonthView /></Lazy> },
           { path: 'categories', element: <Lazy><Categories /></Lazy> },
           { path: 'debts', element: <Lazy><Debts /></Lazy> },
+          { path: 'investments', element: <Lazy><Investments /></Lazy> },
         ],
       },
     ],
