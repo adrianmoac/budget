@@ -114,3 +114,37 @@ export const contributionFormSchema = z.object({
   contrib_date: isoDateSchema,
 });
 export type ContributionFormInput = z.infer<typeof contributionFormSchema>;
+
+// --- Recommended item (§4.8, §2.8) ---
+// A recommendation template: type, an optional category, description, an optional
+// expected amount (pesos → centavos on submit), and a [window_start, window_end]
+// window (end optional = open-ended). Empty form fields carry sentinel values
+// ('' for selects/dates, NaN for the money input) that preprocess to `undefined`
+// so an omitted optional validates instead of failing the shared guards.
+const optionalUuid = z.preprocess(
+  (v) => (v === '' || v === null ? undefined : v),
+  z.string().uuid('Categoría inválida').optional(),
+);
+const optionalIsoDate = z.preprocess(
+  (v) => (v === '' || v === null ? undefined : v),
+  isoDateSchema.optional(),
+);
+const optionalPesos = z.preprocess(
+  (v) => (typeof v === 'number' && Number.isNaN(v) ? undefined : v),
+  pesosAmountSchema.optional(),
+);
+
+export const recommendedItemFormSchema = z
+  .object({
+    type: txTypeSchema,
+    category_id: optionalUuid,
+    description: z.string().max(280, 'Máximo 280 caracteres'),
+    expectedPesos: optionalPesos,
+    window_start: isoDateSchema,
+    window_end: optionalIsoDate,
+  })
+  .refine((d) => d.window_end === undefined || d.window_end >= d.window_start, {
+    message: 'Debe ser igual o posterior al inicio',
+    path: ['window_end'],
+  });
+export type RecommendedItemFormInput = z.infer<typeof recommendedItemFormSchema>;

@@ -20,6 +20,12 @@ const Debts = lazy(() => import('@/pages/Debts').then((m) => ({ default: m.Debts
 const Investments = lazy(() =>
   import('@/pages/Investments').then((m) => ({ default: m.Investments })),
 );
+const YearView = lazy(() =>
+  import('@/pages/YearView').then((m) => ({ default: m.YearView })),
+);
+const Recommended = lazy(() =>
+  import('@/pages/Recommended').then((m) => ({ default: m.Recommended })),
+);
 const Login = lazy(() => import('@/pages/Login').then((m) => ({ default: m.Login })));
 
 function Lazy({ children }: { children: React.ReactNode }) {
@@ -37,8 +43,8 @@ function Lazy({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Routes through Phase 5: dashboard (index), month view, categories, debts,
-// investments. Later phases register /year, /recommended.
+// Routes through Phase 6: dashboard (index), month view, year view, categories,
+// debts, investments, recommended items.
 export const router = createBrowserRouter([
   { path: '/login', element: <Lazy><Login /></Lazy>, errorElement: <RouteError /> },
   {
@@ -50,9 +56,11 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Lazy><Dashboard /></Lazy> },
           { path: 'month', element: <Lazy><MonthView /></Lazy> },
+          { path: 'year', element: <Lazy><YearView /></Lazy> },
           { path: 'categories', element: <Lazy><Categories /></Lazy> },
           { path: 'debts', element: <Lazy><Debts /></Lazy> },
           { path: 'investments', element: <Lazy><Investments /></Lazy> },
+          { path: 'recommended', element: <Lazy><Recommended /></Lazy> },
         ],
       },
     ],
