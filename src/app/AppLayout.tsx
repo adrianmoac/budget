@@ -1,4 +1,4 @@
-import { LayoutDashboard, CalendarDays, LogOut, Wallet } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, Tags, LogOut, Wallet } from 'lucide-react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from './auth';
 import { OfflineBanner } from '@/components/OfflineBanner';
@@ -7,11 +7,12 @@ import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/lib/utils';
 import { toast } from '@/store/toast';
 
-// Phase 2 surface: only Dashboard and Month view exist. Later phases add their
-// own nav entries (categories, debts, investments, year, recommended).
+// Surface through Phase 3: Dashboard, Month, and Categories. Later phases add
+// their own nav entries (debts, investments, year, recommended).
 const NAV = [
   { to: '/', label: 'Resumen', icon: LayoutDashboard, end: true },
   { to: '/month', label: 'Mes', icon: CalendarDays, end: false },
+  { to: '/categories', label: 'Categorías', icon: Tags, end: false },
 ];
 
 export function AppLayout() {

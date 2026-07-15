@@ -13,6 +13,9 @@ const Dashboard = lazy(() =>
 const MonthView = lazy(() =>
   import('@/pages/MonthView').then((m) => ({ default: m.MonthView })),
 );
+const Categories = lazy(() =>
+  import('@/pages/Categories').then((m) => ({ default: m.Categories })),
+);
 const Login = lazy(() => import('@/pages/Login').then((m) => ({ default: m.Login })));
 
 function Lazy({ children }: { children: React.ReactNode }) {
@@ -30,8 +33,8 @@ function Lazy({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Phase 2 routes only: dashboard (index) and month view. Later phases register
-// /year, /debts, /investments, /categories, /recommended.
+// Routes through Phase 3: dashboard (index), month view, categories. Later
+// phases register /year, /debts, /investments, /recommended.
 export const router = createBrowserRouter([
   { path: '/login', element: <Lazy><Login /></Lazy>, errorElement: <RouteError /> },
   {
@@ -43,6 +46,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Lazy><Dashboard /></Lazy> },
           { path: 'month', element: <Lazy><MonthView /></Lazy> },
+          { path: 'categories', element: <Lazy><Categories /></Lazy> },
         ],
       },
     ],
