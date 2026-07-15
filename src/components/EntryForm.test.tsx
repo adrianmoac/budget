@@ -23,6 +23,12 @@ vi.mock('@/hooks/useCategories', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useDebts', () => ({
+  useDebts: () => ({ data: [] }),
+  useDebtPayments: () => ({ data: [] }),
+  useRecordDebtPayment: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
+}));
+
 const existingTransaction: Transaction = {
   id: 'tx-1',
   user_id: 'u',

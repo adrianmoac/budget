@@ -12,6 +12,9 @@ export type AppErrorCode =
   | 'not_authenticated'
   | 'category_not_found'
   | 'cannot_delete_protected_category'
+  | 'debt_not_found'
+  | 'debt_not_active'
+  | 'invalid_amount'
   | 'network_error'
   | 'unexpected_error';
 
@@ -23,6 +26,9 @@ const USER_MESSAGES: Record<AppErrorCode, string> = {
   not_authenticated: 'Tu sesión expiró. Inicia sesión de nuevo',
   category_not_found: 'La categoría ya no existe',
   cannot_delete_protected_category: 'Esta categoría no se puede eliminar',
+  debt_not_found: 'La deuda ya no existe',
+  debt_not_active: 'La deuda no está activa',
+  invalid_amount: 'El monto no es válido',
   network_error: 'Sin conexión — se requiere internet',
   unexpected_error: 'Ocurrió un error inesperado',
 };
@@ -34,6 +40,9 @@ const USER_MESSAGES: Record<AppErrorCode, string> = {
 const RPC_ERROR_CODES: readonly AppErrorCode[] = [
   'category_not_found',
   'cannot_delete_protected_category',
+  'debt_not_found',
+  'debt_not_active',
+  'invalid_amount',
 ];
 
 export class AppError extends Error {

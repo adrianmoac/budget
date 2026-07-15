@@ -1,5 +1,6 @@
 import { Pencil, Trash2 } from 'lucide-react';
 import { RecurrenceBadge } from '@/components/RecurrenceBadge';
+import { DebtBadge } from '@/components/month/DebtBadge';
 import { EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +17,8 @@ interface TransactionTableProps {
   kind: TxType;
   transactions: Transaction[];
   categoryNameById: Map<string, string>;
+  /** Debt names by id, to annotate debt-category expense rows (FR-12). */
+  debtNameById: Map<string, string>;
   onEdit: (transaction: Transaction) => void;
   onDelete: (transaction: Transaction) => void;
 }
@@ -25,6 +28,7 @@ export function TransactionTable({
   kind,
   transactions,
   categoryNameById,
+  debtNameById,
   onEdit,
   onDelete,
 }: TransactionTableProps) {
@@ -67,8 +71,11 @@ export function TransactionTable({
                       {formatDateMX(tx.tx_date)}
                     </td>
                     <td className="px-4 py-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span>{tx.description || '—'}</span>
+                        {tx.debt_id ? (
+                          <DebtBadge debtName={debtNameById.get(tx.debt_id) ?? 'Deuda'} />
+                        ) : null}
                         <RecurrenceBadge recurrence={tx.recurrence} />
                       </div>
                     </td>
@@ -84,6 +91,9 @@ export function TransactionTable({
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8"
+                          // Debt payments are recorded via the RPC; there is no
+                          // plain-edit path (a re-categorized update is guard-rejected).
+                          disabled={!!tx.debt_id}
                           onClick={() => onEdit(tx)}
                           aria-label={`Editar movimiento ${tx.description || ''}`.trim()}
                         >

@@ -1,11 +1,12 @@
 import { QuickAddButton } from '@/components/QuickAddButton';
 import { InvestedSummaryCard } from '@/components/dashboard/InvestedSummaryCard';
 import { LiquidCashCard } from '@/components/dashboard/LiquidCashCard';
+import { PendingDebtsList } from '@/components/dashboard/PendingDebtsList';
 
 /**
- * Dashboard (§4.2). Phase 2 surface: liquid cash + investment summary read from
- * saved totals, plus quick-add. Pending debts (FR-19) and the recommendation
- * banner arrive in Phases 4 and 6.
+ * Dashboard (§4.2). Liquid cash + investment summary read from saved totals, plus
+ * pending debts for the month (FR-19) and quick-add. The recommendation banner
+ * arrives in Phase 6.
  */
 export function Dashboard() {
   return (
@@ -18,6 +19,7 @@ export function Dashboard() {
         <LiquidCashCard />
         <InvestedSummaryCard />
       </div>
+      <PendingDebtsList />
     </div>
   );
 }

@@ -39,19 +39,60 @@ export const categoryFormSchema = z.object({
 });
 export type CategoryFormInput = z.infer<typeof categoryFormSchema>;
 
+// Shared money field: forms work in pesos (a positive amount); conversion to
+// integer centavos happens on submit via `toCentavos`. Guards NaN/Infinity/range
+// so the entry, debt-minimum, and payment amounts validate identically (§10.3).
+const pesosAmountSchema = z
+  .number({ invalid_type_error: 'Monto requerido' })
+  .finite('Monto inválido')
+  .positive('El monto debe ser mayor a 0')
+  .max(21_474_836.47, 'El monto excede el máximo permitido');
+
 // --- EntryForm / transaction (§4.9) ---
-// The form works in pesos (a positive amount); conversion to integer centavos
-// happens on submit via `toCentavos`. `amountPesos` guards NaN/Infinity/range.
 export const entryFormSchema = z.object({
   type: txTypeSchema,
-  amountPesos: z
-    .number({ invalid_type_error: 'Monto requerido' })
-    .finite('Monto inválido')
-    .positive('El monto debe ser mayor a 0')
-    .max(21_474_836.47, 'El monto excede el máximo permitido'),
+  amountPesos: pesosAmountSchema,
   tx_date: isoDateSchema,
   description: z.string().max(280, 'Máximo 280 caracteres'),
   category_id: z.string().uuid('Selecciona una categoría'),
   recurrence: recurrenceSchema,
 });
 export type EntryFormInput = z.infer<typeof entryFormSchema>;
+
+// --- Debt (§4.6, §3.5) ---
+// Minimum payment is entered in pesos; total/remaining months are bounded
+// integers (remaining ≤ total mirrors the DB CHECK). total_months is capped to a
+// sane 600 (50 years) so an unbounded integer never reaches the boundary.
+export const debtFormSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Nombre requerido').max(120, 'Máximo 120 caracteres'),
+    total_months: z
+      .number({ invalid_type_error: 'Requerido' })
+      .int('Debe ser un número entero')
+      .positive('Debe ser mayor a 0')
+      .max(600, 'Máximo 600 meses'),
+    remaining_months: z
+      .number({ invalid_type_error: 'Requerido' })
+      .int('Debe ser un número entero')
+      .nonnegative('No puede ser negativo'),
+    minimumPesos: pesosAmountSchema,
+    due_day: z
+      .number({ invalid_type_error: 'Requerido' })
+      .int('Debe ser un número entero')
+      .min(1, 'Entre 1 y 31')
+      .max(31, 'Entre 1 y 31'),
+    start_date: isoDateSchema,
+  })
+  .refine((d) => d.remaining_months <= d.total_months, {
+    message: 'No puede exceder el total de meses',
+    path: ['remaining_months'],
+  });
+export type DebtFormInput = z.infer<typeof debtFormSchema>;
+
+// --- Debt payment (§4.6, §4.9, §3.2) ---
+export const paymentFormSchema = z.object({
+  amountPesos: pesosAmountSchema,
+  date: isoDateSchema,
+  description: z.string().max(280, 'Máximo 280 caracteres'),
+});
+export type PaymentFormInput = z.infer<typeof paymentFormSchema>;
