@@ -107,6 +107,6 @@ jobs:
 
       # CP-7.1: fail the build if any secret pattern (keys, tokens, connection
       # strings) is introduced. Never let service_role reach the repo.
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
