@@ -7,14 +7,21 @@ import { RecommendedList } from '@/components/recommended/RecommendedList';
 import { ErrorState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { currentMonthYearMX } from '@/domain/date';
 import type { RecommendedItem } from '@/domain/types';
 import { useCategories } from '@/hooks/useCategories';
-import { useDeleteRecommendedItem, useRecommendedItems } from '@/hooks/useRecommendations';
+import {
+  useDeleteRecommendedItem,
+  useRecommendationStatus,
+} from '@/hooks/useRecommendations';
 import { toast } from '@/store/toast';
 
 /** Manage recommendation templates (§4.8). Results feed the dashboard banner. */
 export function Recommended() {
-  const itemsQuery = useRecommendedItems();
+  // "This month" is literal here — the page has no period picker, and coverage is
+  // always judged against the current month (§4.8).
+  const { month, year } = currentMonthYearMX();
+  const statusQuery = useRecommendationStatus(year, month);
   const categoriesQuery = useCategories();
   const deleteMutation = useDeleteRecommendedItem();
 
@@ -28,6 +35,18 @@ export function Recommended() {
     return map;
   }, [categoriesQuery.data]);
   const categories = categoriesQuery.data ?? [];
+
+  // Past = the window closed before this month, OR it is already registered this
+  // month. Read from the explicit flags, never inferred from absence in the
+  // "missing" list: an item can be none of due/covered/expired — a yearly item
+  // outside its anniversary month is simply not due, and belongs in Pendientes.
+  const { pending, past } = useMemo(() => {
+    const rows = statusQuery.data ?? [];
+    return {
+      pending: rows.filter((r) => !(r.is_expired || r.is_covered)),
+      past: rows.filter((r) => r.is_expired || r.is_covered),
+    };
+  }, [statusQuery.data]);
 
   function openCreate() {
     setEditing(undefined);
@@ -60,23 +79,35 @@ export function Recommended() {
         </Button>
       </div>
 
-      {itemsQuery.isPending ? (
+      {statusQuery.isPending ? (
         <div className="space-y-2">
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-40 w-full" />
         </div>
-      ) : itemsQuery.isError ? (
+      ) : statusQuery.isError ? (
         <ErrorState
           message="No se pudieron cargar las recomendaciones"
-          onRetry={() => void itemsQuery.refetch()}
+          onRetry={() => void statusQuery.refetch()}
         />
       ) : (
-        <RecommendedList
-          items={itemsQuery.data}
-          categoryNameById={categoryNameById}
-          onEdit={openEdit}
-          onDelete={setDeleting}
-        />
+        <>
+          <RecommendedList
+            title="Pendientes"
+            emptyLabel="Nada pendiente este mes"
+            rows={pending}
+            categoryNameById={categoryNameById}
+            onEdit={openEdit}
+            onDelete={setDeleting}
+          />
+          <RecommendedList
+            title="Ya registradas o vencidas"
+            emptyLabel="Nada registrado ni vencido"
+            rows={past}
+            categoryNameById={categoryNameById}
+            onEdit={openEdit}
+            onDelete={setDeleting}
+          />
+        </>
       )}
 
       <RecommendedForm

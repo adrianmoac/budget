@@ -150,7 +150,7 @@ const optionalPesos = z.preprocess(
   pesosAmountSchema.optional(),
 );
 
-export const recommendRepeatSchema = z.enum(['monthly', 'yearly']);
+export const recommendRepeatSchema = z.enum(['monthly', 'yearly', 'none']);
 
 export const recommendedItemFormSchema = z
   .object({
@@ -162,14 +162,20 @@ export const recommendedItemFormSchema = z
     window_end: optionalIsoDate,
     repeat_mode: recommendRepeatSchema,
   })
-  .refine((d) => d.window_end === undefined || d.window_end >= d.window_start, {
-    message: 'Debe ser igual o posterior al inicio',
-    path: ['window_end'],
-  })
-  // An income item is matched by description (0024), so a blank one could never be
-  // marked as covered and would be recommended forever. Require it at the boundary.
-  .refine((d) => d.type !== 'income' || d.description.trim() !== '', {
-    message: 'Requerida para ingresos (se usa para detectar si ya se registró)',
+  // A one-off ignores window_end (submitted as null), so a stale value left behind
+  // by switching repeat mode must not fail validation on a field that is hidden.
+  .refine(
+    (d) =>
+      d.repeat_mode === 'none' ||
+      d.window_end === undefined ||
+      d.window_end >= d.window_start,
+    { message: 'Debe ser igual o posterior al inicio', path: ['window_end'] },
+  )
+  // Description is the match key for both types (0029), so a blank one could never
+  // be marked as covered and would be recommended forever. Required at the boundary;
+  // the recommended_items_description_check CHECK is the backstop.
+  .refine((d) => d.description.trim() !== '', {
+    message: 'Requerida: se compara con tus movimientos para saber si ya la registraste',
     path: ['description'],
   });
 export type RecommendedItemFormInput = z.infer<typeof recommendedItemFormSchema>;

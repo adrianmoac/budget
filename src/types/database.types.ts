@@ -489,6 +489,16 @@ export type Database = {
       pg_version: { Args: never; Returns: string }
       pg_version_num: { Args: never; Returns: number }
       pgtap_version: { Args: never; Returns: number }
+      recommendation_status: {
+        Args: { p_month: number; p_year: number }
+        Returns: {
+          covered_on: string
+          is_covered: boolean
+          is_due: boolean
+          is_expired: boolean
+          item: Json
+        }[]
+      }
       record_debt_payment: {
         Args: {
           p_amount_cents: number
@@ -535,7 +545,7 @@ export type Database = {
     Enums: {
       category_kind: "normal" | "otros" | "debt"
       debt_status: "active" | "paid" | "archived"
-      recommend_repeat: "monthly" | "yearly"
+      recommend_repeat: "monthly" | "yearly" | "none"
       recurrence: "recurrent" | "variable"
       tx_type: "expense" | "income"
     }
@@ -672,7 +682,7 @@ export const Constants = {
     Enums: {
       category_kind: ["normal", "otros", "debt"],
       debt_status: ["active", "paid", "archived"],
-      recommend_repeat: ["monthly", "yearly"],
+      recommend_repeat: ["monthly", "yearly", "none"],
       recurrence: ["recurrent", "variable"],
       tx_type: ["expense", "income"],
     },

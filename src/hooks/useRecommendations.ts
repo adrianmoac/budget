@@ -8,19 +8,11 @@ import {
   createRecommendedItem,
   deleteRecommendedItem,
   fetchMissingRecommendations,
-  listRecommendedItems,
+  fetchRecommendationStatus,
   updateRecommendedItem,
   type RecommendedItemInput,
 } from '@/api/recommendations';
 import { qk } from '@/domain/queryKeys';
-
-/** All recommendation templates (the /recommended CRUD list, §4.8). */
-export function useRecommendedItems() {
-  return useQuery({
-    queryKey: qk.recommendedItems(),
-    queryFn: listRecommendedItems,
-  });
-}
 
 /** Recommendations "missing" this period — feeds the banner + dashboard (§4.2, §4.8). */
 export function useMissingRecommendations(year: number, month: number) {
@@ -31,12 +23,26 @@ export function useMissingRecommendations(year: number, month: number) {
 }
 
 /**
- * A template change alters both the CRUD list and every derived "missing" result,
- * so both refetch (spec §6.1 matrix: recommended-item CRUD → `['recommendations', *]`,
- * plus the app-specific templates list). Prefix invalidation covers all periods.
+ * Per-item due/covered/expired flags for a period — feeds the /recommended split
+ * into pending vs. already-registered/expired (§4.8). Keyed under the
+ * 'recommendations' prefix, so both template CRUD and transaction mutations already
+ * refetch it (coverage depends on transactions).
+ */
+export function useRecommendationStatus(year: number, month: number) {
+  return useQuery({
+    queryKey: qk.recommendationStatus(year, month),
+    queryFn: () => fetchRecommendationStatus(year, month),
+  });
+}
+
+/**
+ * A template change alters every derived result for it — the "missing" list and the
+ * per-item status flags — so the whole `['recommendations', *]` prefix refetches
+ * (spec §6.1 matrix). Prefix invalidation covers all periods. The templates are no
+ * longer fetched as a separate list: `recommendation_status` already returns every
+ * one, so a second query could only drift from it.
  */
 function invalidateAfterRecommendedItemMutation(qc: QueryClient): void {
-  void qc.invalidateQueries({ queryKey: qk.recommendedItems() });
   void qc.invalidateQueries({ queryKey: ['recommendations'] });
 }
 

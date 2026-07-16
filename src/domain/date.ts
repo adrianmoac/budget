@@ -75,3 +75,30 @@ export function formatDateMX(iso: string): string {
 export function monthLabelES(month: number): string {
   return MONTH_NAMES_ES[month - 1] ?? '';
 }
+
+/**
+ * Format an ISO date as month + year only (`"jun 2026"`), dropping the day.
+ * Recommendation matching is month-granular, so a repeating item's window must not
+ * render a day it does not honour (see domain/recommendations.ts).
+ */
+export function formatMonthYearMX(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: MX_TZ,
+    month: 'short',
+    year: 'numeric',
+  }).format(dt);
+}
+
+/** The full Spanish month name of an ISO date (`"2026-06-14"` → `"junio"`). */
+export function monthNameFromISO(iso: string): string {
+  const month = Number(iso.split('-')[1]);
+  return (monthLabelES(month) || iso).toLowerCase();
+}
+
+/** The year component of an ISO date as a string (`"2026-06-14"` → `"2026"`). */
+export function yearFromISO(iso: string): string {
+  return iso.split('-')[0] ?? iso;
+}

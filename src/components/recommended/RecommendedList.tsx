@@ -1,36 +1,67 @@
 import { Pencil, Trash2 } from 'lucide-react';
+import type { RecommendationStatus } from '@/api/recommendations';
 import { EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDateMX } from '@/domain/date';
 import { formatMXN } from '@/domain/money';
+import { repeatLabel, windowLabel } from '@/domain/recommendations';
 import type { RecommendedItem } from '@/domain/types';
 
 interface RecommendedListProps {
-  items: RecommendedItem[];
+  /** Status rows straight from `recommendation_status` — the flags drive Estado. */
+  rows: RecommendationStatus[];
   categoryNameById: Map<string, string>;
   onEdit: (item: RecommendedItem) => void;
   onDelete: (item: RecommendedItem) => void;
+  /** Rendered as a card header — set when the page shows more than one list. */
+  title?: string;
+  emptyLabel?: string;
 }
 
-function windowLabel(item: RecommendedItem): string {
-  const start = formatDateMX(item.window_start);
-  return item.window_end ? `${start} – ${formatDateMX(item.window_end)}` : `Desde ${start}`;
+/**
+ * Human-readable state for a row. Coverage wins over expiry when both hold: that it
+ * was registered (and when) is more useful than that its window has since closed.
+ */
+function statusLabel(row: RecommendationStatus): string {
+  if (row.is_covered) {
+    return row.covered_on ? `Registrada el ${formatDateMX(row.covered_on)}` : 'Registrada';
+  }
+  if (row.is_expired) return 'Vencida';
+  return 'Pendiente';
 }
 
 /** Recommendation templates with edit/delete actions (§4.8). */
 export function RecommendedList({
-  items,
+  rows,
   categoryNameById,
   onEdit,
   onDelete,
+  title,
+  emptyLabel = 'Sin recomendaciones',
 }: RecommendedListProps) {
-  if (items.length === 0) {
-    return <EmptyState title="Sin recomendaciones" />;
+  const header = title ? (
+    <CardHeader className="pb-2">
+      <CardTitle className="text-base">{title}</CardTitle>
+    </CardHeader>
+  ) : null;
+
+  if (rows.length === 0) {
+    return title ? (
+      <Card>
+        {header}
+        <CardContent>
+          <EmptyState title={emptyLabel} />
+        </CardContent>
+      </Card>
+    ) : (
+      <EmptyState title={emptyLabel} />
+    );
   }
 
   return (
     <Card>
+      {header}
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -51,13 +82,18 @@ export function RecommendedList({
                 <th scope="col" className="px-4 py-2 font-medium">
                   Ventana
                 </th>
+                <th scope="col" className="px-4 py-2 font-medium">
+                  Estado
+                </th>
                 <th scope="col" className="px-4 py-2 text-right font-medium">
                   <span className="sr-only">Acciones</span>
                 </th>
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {rows.map((row) => {
+                const item = row.item;
+                return (
                 <tr key={item.id} className="border-b last:border-0">
                   <td className="px-4 py-2 font-medium">
                     {item.description || <span className="text-muted-foreground">—</span>}
@@ -75,7 +111,17 @@ export function RecommendedList({
                       ? '—'
                       : formatMXN(item.expected_amount_cents)}
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">{windowLabel(item)}</td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground">
+                        {repeatLabel(item.repeat_mode)}
+                      </span>
+                      <span>{windowLabel(item)}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {statusLabel(row)}
+                  </td>
                   <td className="px-4 py-2">
                     <div className="flex justify-end gap-1">
                       <Button
@@ -99,7 +145,8 @@ export function RecommendedList({
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
