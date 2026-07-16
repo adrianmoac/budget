@@ -42,10 +42,52 @@ describe('RecommendedForm create', () => {
     );
   });
 
+  it('defaults to repeating every month', async () => {
+    const user = userEvent.setup();
+    render(<RecommendedForm open onOpenChange={vi.fn()} categories={categories} />);
+
+    await user.type(screen.getByLabelText('Descripción'), 'Renta');
+    await user.click(screen.getByRole('button', { name: 'Crear' }));
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1));
+    expect(createMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ repeat_mode: 'monthly' }),
+    );
+  });
+
+  it('hides the window end and submits a null one for a one-off', async () => {
+    const user = userEvent.setup();
+    render(<RecommendedForm open onOpenChange={vi.fn()} categories={categories} />);
+
+    // A bounded window is visible while the item repeats...
+    expect(screen.getByLabelText('Fin de ventana (opcional)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Inicio de ventana')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Repetir'));
+    await user.click(await screen.findByRole('option', { name: 'Una vez' }));
+
+    // ...and gone once it does not: a one-off has no range, just a date.
+    await waitFor(() =>
+      expect(
+        screen.queryByLabelText('Fin de ventana (opcional)'),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText('Fecha')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Descripción'), 'Trámite');
+    await user.click(screen.getByRole('button', { name: 'Crear' }));
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1));
+    expect(createMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ repeat_mode: 'none', window_end: null }),
+    );
+  });
+
   it('converts the expected pesos amount to integer centavos', async () => {
     const user = userEvent.setup();
     render(<RecommendedForm open onOpenChange={vi.fn()} categories={categories} />);
 
+    await user.type(screen.getByLabelText('Descripción'), 'Súper');
     await user.type(screen.getByLabelText('Monto esperado (opcional)'), '150.50');
     await user.click(screen.getByRole('button', { name: 'Crear' }));
 
@@ -53,6 +95,20 @@ describe('RecommendedForm create', () => {
     expect(createMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ expected_amount_cents: 15_050 }),
     );
+  });
+
+  it('blocks submit without a description, which is the match key', async () => {
+    const user = userEvent.setup();
+    render(<RecommendedForm open onOpenChange={vi.fn()} categories={categories} />);
+
+    await user.click(screen.getByRole('button', { name: 'Crear' }));
+
+    expect(
+      await screen.findByText(
+        'Requerida: se compara con tus movimientos para saber si ya la registraste',
+      ),
+    ).toBeInTheDocument();
+    expect(createMutateAsync).not.toHaveBeenCalled();
   });
 
   it('rejects a window end before the window start', async () => {

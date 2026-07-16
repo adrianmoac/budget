@@ -60,6 +60,7 @@ function toDefaults(item?: RecommendedItem): RecommendedItemFormInput {
           : fromCentavos(item.expected_amount_cents),
       window_start: item.window_start,
       window_end: item.window_end ?? '',
+      repeat_mode: item.repeat_mode,
     };
   }
   return {
@@ -69,6 +70,7 @@ function toDefaults(item?: RecommendedItem): RecommendedItemFormInput {
     expectedPesos: Number.NaN,
     window_start: todayISOMX(),
     window_end: '',
+    repeat_mode: 'monthly',
   };
 }
 
@@ -89,11 +91,16 @@ export function RecommendedForm({
     control,
     reset,
     setError,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<RecommendedItemFormInput>({
     resolver: zodResolver(recommendedItemFormSchema),
     defaultValues: toDefaults(item),
   });
+
+  const type = watch('type');
+  const repeatMode = watch('repeat_mode');
+  const isOneOff = repeatMode === 'none';
 
   useEffect(() => {
     if (open) reset(toDefaults(item));
@@ -112,11 +119,16 @@ export function RecommendedForm({
 
     const payload: RecommendedItemInput = {
       type: values.type,
-      category_id: values.category_id ?? null,
+      // Income items are matched by description, not category (0024), so they
+      // never carry one.
+      category_id: values.type === 'income' ? null : (values.category_id ?? null),
       description: values.description,
       expected_amount_cents: expectedCents,
       window_start: values.window_start,
-      window_end: values.window_end ?? null,
+      // A one-off has no end bound — storing null is what keeps it non-expiring
+      // and due until covered (0027), with no special case in the status query.
+      window_end: values.repeat_mode === 'none' ? null : (values.window_end ?? null),
+      repeat_mode: values.repeat_mode,
     };
 
     try {
@@ -170,16 +182,39 @@ export function RecommendedForm({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="category_id">Categoría</Label>
+              <Label htmlFor="repeat_mode">Repetir</Label>
+              <Controller
+                control={control}
+                name="repeat_mode"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="repeat_mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">Cada mes</SelectItem>
+                      <SelectItem value="yearly">Cada año</SelectItem>
+                      <SelectItem value="none">Una vez</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          </div>
+
+          {/* Categoría is organisational only — matching is by description for both
+              types (0029). Income carries no category at all (0022), so it is hidden
+              for income rather than shown as a field that does nothing. */}
+          {type === 'income' ? null : (
+            <div className="space-y-2">
+              <Label htmlFor="category_id">Categoría (sólo para organizar)</Label>
               <Controller
                 control={control}
                 name="category_id"
                 render={({ field }) => (
                   <Select
                     value={field.value ? field.value : NO_CATEGORY}
-                    onValueChange={(v) =>
-                      field.onChange(v === NO_CATEGORY ? '' : v)
-                    }
+                    onValueChange={(v) => field.onChange(v === NO_CATEGORY ? '' : v)}
                   >
                     <SelectTrigger id="category_id">
                       <SelectValue />
@@ -196,7 +231,7 @@ export function RecommendedForm({
                 )}
               />
             </div>
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="description">Descripción</Label>
@@ -208,7 +243,12 @@ export function RecommendedForm({
             />
             {errors.description ? (
               <p className="text-sm text-destructive">{errors.description.message}</p>
-            ) : null}
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Debe coincidir con la descripción del movimiento para marcarla como
+                registrada. No distingue mayúsculas ni espacios.
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -223,9 +263,13 @@ export function RecommendedForm({
             ) : null}
           </div>
 
+          {/* A one-off has no range: it runs from its date until something covers
+              it, so the end field is hidden and stored as null (0026/0027). */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="window_start">Inicio de ventana</Label>
+              <Label htmlFor="window_start">
+                {isOneOff ? 'Fecha' : 'Inicio de ventana'}
+              </Label>
               <Input
                 id="window_start"
                 type="date"
@@ -234,20 +278,28 @@ export function RecommendedForm({
               />
               {errors.window_start ? (
                 <p className="text-sm text-destructive">{errors.window_start.message}</p>
-              ) : null}
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {isOneOff
+                    ? 'Se recomienda desde este mes hasta que la registres.'
+                    : 'Sólo cuentan el mes y el año; el día no afecta la recomendación.'}
+                </p>
+              )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="window_end">Fin de ventana (opcional)</Label>
-              <Input
-                id="window_end"
-                type="date"
-                aria-invalid={!!errors.window_end}
-                {...register('window_end')}
-              />
-              {errors.window_end ? (
-                <p className="text-sm text-destructive">{errors.window_end.message}</p>
-              ) : null}
-            </div>
+            {isOneOff ? null : (
+              <div className="space-y-2">
+                <Label htmlFor="window_end">Fin de ventana (opcional)</Label>
+                <Input
+                  id="window_end"
+                  type="date"
+                  aria-invalid={!!errors.window_end}
+                  {...register('window_end')}
+                />
+                {errors.window_end ? (
+                  <p className="text-sm text-destructive">{errors.window_end.message}</p>
+                ) : null}
+              </div>
+            )}
           </div>
 
           {errors.root ? (

@@ -1,0 +1,18 @@
+# Automated dependency updates (architecture §13, CP-7.1). Pinned versions are
+# bumped via PRs so CVEs are patched within the SLA (critical 7d, high 30d).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Batch low-risk dev-tooling bumps into one PR to reduce noise.
+      dev-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

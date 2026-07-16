@@ -33,6 +33,9 @@ export function TransactionTable({
   onDelete,
 }: TransactionTableProps) {
   const title = kind === 'income' ? 'Ingresos' : 'Gastos';
+  // Income carries no category (0022), so the column is dropped from that table
+  // rather than rendered as a always-empty placeholder.
+  const showCategory = kind !== 'income';
 
   return (
     <Card>
@@ -53,9 +56,11 @@ export function TransactionTable({
                   <th scope="col" className="px-4 py-2 font-medium">
                     Descripción
                   </th>
-                  <th scope="col" className="px-4 py-2 font-medium">
-                    Categoría
-                  </th>
+                  {showCategory ? (
+                    <th scope="col" className="px-4 py-2 font-medium">
+                      Categoría
+                    </th>
+                  ) : null}
                   <th scope="col" className="px-4 py-2 text-right font-medium">
                     Monto
                   </th>
@@ -79,9 +84,11 @@ export function TransactionTable({
                         <RecurrenceBadge recurrence={tx.recurrence} />
                       </div>
                     </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {categoryNameById.get(tx.category_id) ?? '—'}
-                    </td>
+                    {showCategory ? (
+                      <td className="px-4 py-2 text-muted-foreground">
+                        {(tx.category_id && categoryNameById.get(tx.category_id)) ?? '—'}
+                      </td>
+                    ) : null}
                     <td className="px-4 py-2 text-right font-medium tabular-nums">
                       {formatMXN(tx.amount_cents)}
                     </td>

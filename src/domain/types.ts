@@ -16,6 +16,7 @@ export type TxType = Database['public']['Enums']['tx_type']; // 'expense' | 'inc
 export type Recurrence = Database['public']['Enums']['recurrence']; // 'recurrent' | 'variable'
 export type CategoryKind = Database['public']['Enums']['category_kind']; // 'normal' | 'otros' | 'debt'
 export type DebtStatus = Database['public']['Enums']['debt_status'];
+export type RecommendRepeat = Database['public']['Enums']['recommend_repeat']; // 'monthly' | 'yearly'
 
 // --- Row types ---
 export type Totals = Tables<'totals'>;

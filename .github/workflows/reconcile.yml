@@ -1,0 +1,32 @@
+name: Reconciliation Monitor
+
+# Periodic integrity check (architecture §15, CP-7.2): asserts stored totals
+# match recomputed sums in the LIVE database. Any drift is a trigger bug and
+# fails this job, which is the alert. Also runnable on demand.
+on:
+  schedule:
+    # 09:00 UTC ≈ 03:00 America/Mexico_City — daily, off-peak.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  reconcile:
+    name: Assert zero drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — require the DB connection secret
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::SUPABASE_DB_URL secret is not set — cannot run the reconciliation monitor."
+            exit 1
+          fi
+
+      - name: Run reconciliation check
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        # ON_ERROR_STOP turns a drift RAISE into a non-zero exit -> job fails -> alert.
+        run: psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/monitoring/reconciliation_check.sql

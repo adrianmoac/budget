@@ -13,7 +13,8 @@ export interface TransactionInput {
   amount_cents: number;
   tx_date: string;
   description: string;
-  category_id: string;
+  /** Expenses only; `null` for income, which carries no category (0022). */
+  category_id: string | null;
   recurrence: Recurrence;
 }
 

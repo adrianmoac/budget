@@ -49,14 +49,30 @@ const pesosAmountSchema = z
   .max(21_474_836.47, 'El monto excede el máximo permitido');
 
 // --- EntryForm / transaction (§4.9) ---
-export const entryFormSchema = z.object({
-  type: txTypeSchema,
-  amountPesos: pesosAmountSchema,
-  tx_date: isoDateSchema,
-  description: z.string().max(280, 'Máximo 280 caracteres'),
-  category_id: z.string().uuid('Selecciona una categoría'),
-  recurrence: recurrenceSchema,
-});
+// Only expenses are categorized: income carries no category at all (migration
+// 0022). `category_id` is therefore validated conditionally rather than as a plain
+// uuid, mirroring the `transactions_category_by_type` CHECK on both halves so the
+// form can never submit a payload the DB will reject. The empty-string sentinel is
+// what an unselected Select holds.
+export const entryFormSchema = z
+  .object({
+    type: txTypeSchema,
+    amountPesos: pesosAmountSchema,
+    tx_date: isoDateSchema,
+    description: z.string().max(280, 'Máximo 280 caracteres'),
+    category_id: z.string(),
+    recurrence: recurrenceSchema,
+  })
+  .superRefine((d, ctx) => {
+    if (d.type === 'income') return; // income: category ignored and cleared on submit
+    if (!z.string().uuid().safeParse(d.category_id).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['category_id'],
+        message: 'Selecciona una categoría',
+      });
+    }
+  });
 export type EntryFormInput = z.infer<typeof entryFormSchema>;
 
 // --- Debt (§4.6, §3.5) ---
@@ -134,6 +150,8 @@ const optionalPesos = z.preprocess(
   pesosAmountSchema.optional(),
 );
 
+export const recommendRepeatSchema = z.enum(['monthly', 'yearly', 'none']);
+
 export const recommendedItemFormSchema = z
   .object({
     type: txTypeSchema,
@@ -142,9 +160,22 @@ export const recommendedItemFormSchema = z
     expectedPesos: optionalPesos,
     window_start: isoDateSchema,
     window_end: optionalIsoDate,
+    repeat_mode: recommendRepeatSchema,
   })
-  .refine((d) => d.window_end === undefined || d.window_end >= d.window_start, {
-    message: 'Debe ser igual o posterior al inicio',
-    path: ['window_end'],
+  // A one-off ignores window_end (submitted as null), so a stale value left behind
+  // by switching repeat mode must not fail validation on a field that is hidden.
+  .refine(
+    (d) =>
+      d.repeat_mode === 'none' ||
+      d.window_end === undefined ||
+      d.window_end >= d.window_start,
+    { message: 'Debe ser igual o posterior al inicio', path: ['window_end'] },
+  )
+  // Description is the match key for both types (0029), so a blank one could never
+  // be marked as covered and would be recommended forever. Required at the boundary;
+  // the recommended_items_description_check CHECK is the backstop.
+  .refine((d) => d.description.trim() !== '', {
+    message: 'Requerida: se compara con tus movimientos para saber si ya la registraste',
+    path: ['description'],
   });
 export type RecommendedItemFormInput = z.infer<typeof recommendedItemFormSchema>;

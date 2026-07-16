@@ -1,9 +1,15 @@
 # Budget Manager — Architecture & Implementation Plan
 
-**Status:** Approved architecture (awaiting go-ahead for implementation)
+**Status:** Implemented through Phase 7, with post-approval revisions (see §21)
 **Type:** Single-user, installable, online-only PWA
 **Backend:** Supabase (Postgres + Auth + RLS + Edge Functions)
 **Money:** Integer centavos, single currency **MXN**
+
+> **Revisions after approval.** Several decisions below were changed in use, with the
+> product owner's sign-off. Each is marked **Revised** or **Superseded** inline and
+> cites the migration that implements it. **§21 is the changelog** — read it before
+> trusting any statement in this document against the running code. The locked
+> decisions in the next section remain unchanged.
 
 ---
 
@@ -24,9 +30,9 @@ These were confirmed by the product owner and are not re-litigated:
 
 | # | Topic | Decision |
 |---|-------|----------|
-| D1 | **`totalInterestMoney` semantics** | Redefined using **market value**. Each investment vehicle has a manually editable `market_value_cents`. `totalMarketValue = SUM(market_value_cents)`. **`totalInterestMoney = totalMarketValue − totalInvested`** (derived, not stored). Percentage = `totalInterestMoney / totalInvested × 100`, guarded against divide-by-zero. |
-| D2 | **Do contributions reduce `liquidCash`?** | **No.** A contribution affects only `totalInvested` / per-vehicle totals, never `liquidCash`. |
-| D3 | **Recommended-item match key** | Match on **category + month + year**. An item is recommended when its window includes the month and **no transaction shares its `category_id` in that month/year**. Type is a display attribute only. |
+| D1 | **`totalInterestMoney` semantics** | Redefined using **market value**. Each investment vehicle has a `market_value_cents`. `totalMarketValue = SUM(market_value_cents)`. **`totalInterestMoney = totalMarketValue − totalInvested`** (derived, not stored). Percentage = `totalInterestMoney / totalInvested × 100`, guarded against divide-by-zero. <br>**Revised (0025):** `market_value_cents` is no longer *purely* manual. Every contribution now adds its amount to it (§7.7), because leaving it flat while `totalInvested` rose reported an instant loss equal to the amount just contributed — adding money is not a loss. It remains hand-editable for real gains/losses; the derivation above is unchanged. |
+| D2 | **Do contributions reduce `liquidCash`?** | **No.** A contribution affects only `totalInvested` / per-vehicle totals, never `liquidCash`. *(Unchanged.)* |
+| D3 | **Recommended-item match key** | ~~Match on **category + month + year**.~~ <br>**Superseded (0029): match on `description` + period.** An item is covered when a transaction **of the same type** whose description equals the item's — trimmed and case-folded, not a substring — falls in the period. Category is **organisational only** and plays no part in matching. <br>*Why:* the category rule allowed only one recommendation per category — any expense in that category covered every item sharing it, so "Agua" and "Luz" under Casa could not coexist. Description is also the only key that works for income, which carries no category at all (D11). Consequence: a blank description could never be satisfied, so it is rejected at the Zod boundary **and** by a CHECK. |
 | D4 | **Debt overpayment** | A payment covering the minimum decrements **exactly one month**. Additionally, `remaining_months` is **manually editable** (bounded `0 … total_months`). |
 | D5 | **Deleting a debt** | **Soft delete / archive** (`status='archived'`); payment history and `liquidCash` preserved. |
 | D6 | **Multiple covering payments per month** | **Allowed**; each covering payment decrements one month; UI **warns** if the debt already has a covering payment that month. |
@@ -34,6 +40,16 @@ These were confirmed by the product owner and are not re-litigated:
 | D8 | **Auth provisioning & recovery** | **Supabase admin dashboard only.** No password-reset or MFA UI, no self-serve flows. App has a login screen only. |
 | D9 | **Category name collisions** | Rejected via `UNIQUE(user_id, name)` on both create and rename. |
 | D10 | **Year view granularity** | Per-month income/expense/balance/invested first; category matrix deferred. |
+
+### 0.1.1 Decisions added after approval
+
+| # | Topic | Decision |
+|---|-------|----------|
+| D11 | **Does an income have a category?** | **No** (0022). Only expenses are classified; `transactions.category_id` is nullable and a CHECK pins both halves — income MUST have none, expense MUST have one. Enforcing both directions means a type flip cannot strand a category: the update has to clear or set it in the same statement. The income table drops the column entirely and `EntryForm` hides the field. Revises FR-4. |
+| D12 | **Recommendation repeat modes** | A recommended item repeats `monthly` (default; every month its window overlaps), `yearly` (only the anniversary month of `window_start`), or `none` (a one-off) — 0023/0026. The mode is a **filter over the derived query, not a generator**: no rows are materialized per period, preserving §7.5. |
+| D13 | **When is a one-off "paid"?** | **Ever, since `window_start`** (0028). A `none` item is covered by any matching transaction from its start date up to the end of the queried period. Repeating items keep per-period coverage — rent is owed again every month. *Why:* checking a one-off per-month meant something paid in Aug 2025 looked unpaid in every later month, sat in Pendientes forever and the banner nagged indefinitely. The upper bound keeps historical queries honest: a later payment cannot retroactively cover an earlier month. |
+| D14 | **When does a window expire?** | **The day after `window_end`** (0028), not the month after. Measured against a reference day: *today* (America/Mexico_City) when the queried period is the current month, else that month's first day — so a historical query never expires an item inside its own window. An item expiring **today** is still pending. Deliberately finer than the coverage match, which stays month-granular: *"is the window still open?"* is a question about now, while *"was it paid?"* is a question about a period. |
+| D15 | **Pending vs. past split** | Past = `is_expired OR is_covered`; pending = everything else. The three status flags are **independent facts** and coverage is never inferred from absence in the "missing" list — that list also omits items which are merely *not due* (a `yearly` item is absent 11 months a year), which would misfile them as past. Accepted consequence: a `monthly` item moves between the two tables as it is covered each month, and the past table mixes "done this month" with "expired" — hence its label, *"Ya registradas o vencidas"*. |
 
 ### 0.2 Assumptions
 
@@ -64,15 +80,15 @@ Security is enforced via **Row-Level Security keyed to `auth.uid()`** on every t
 - FR-1 CRUD a transaction that is either **EXPENSE or INCOME** (default EXPENSE).
 - FR-2 Date may be past/future; default = today.
 - FR-3 Free-text description.
-- FR-4 Category from a managed list (add/rename/delete). Deleting a category with existing records **reassigns those records to "Otros"**.
+- FR-4 Category from a managed list (add/rename/delete). Deleting a category with existing records **reassigns those records to "Otros"**. **Revised (0022): expenses only — an income carries no category** (D11), so `delete_category` only ever reassigns expense rows.
 - FR-5 Category **"Otros" cannot be deleted**; system `debt` category cannot be deleted.
 - FR-6 When category = **debt**, form shows a dropdown of active debts and defaults the amount to that debt's **minimum monthly payment**.
 - FR-7 Each entry flagged **recurrent or variable** (label/filter only; no generation).
 - FR-8 Seed categories: Casa, Coche, Suscripciones, Comida, Salidas, Viajes, Entretenimiento, Súper, Ropa, Personal, Otros (+ system `debt`).
 
 **Investments**
-- FR-9 Record a contribution: pick investment vehicle + amount + date.
-- FR-10 CRUD the investment vehicles themselves (name + manually-editable market value). Seed: GBM, Cetes.
+- FR-9 Record a contribution: pick investment vehicle + amount + date. **Revised (0025): the contribution also raises that vehicle's market value by the same amount** (D1, §7.7).
+- FR-10 CRUD the investment vehicles themselves (name + market value). Market value is hand-editable **and** contribution-maintained (D1); it can never be negative (CHECK). Seed: GBM, Cetes.
 
 **Views**
 - FR-11 Default view: expenses and incomes in **separate tables, per selected month**.
@@ -93,8 +109,9 @@ Security is enforced via **Row-Level Security keyed to `auth.uid()`** on every t
 - FR-22 Record a monthly payment; when it covers the minimum, **decrement remaining months by one** — atomically with the resulting cash transaction.
 
 **Recommended items**
-- FR-23 If an expected expense/income is missing for a month, **recommend adding it** (derived by category + month + year).
-- FR-24 CRUD recommended items and their start/end recommendation window.
+- FR-23 If an expected expense/income is missing for a month, **recommend adding it** — derived by **description + period** (D3, superseding the original category match).
+- FR-24 CRUD recommended items, their start/end recommendation window, and their **repeat mode** (`monthly` / `yearly` / `none`, D12).
+- FR-26 The `/recommended` page splits items into **Pendientes** and **Ya registradas o vencidas** (D15), showing per-item state — `Registrada el <date>` / `Vencida` / `Pendiente`. The covering date is derived, never stored (§7.5).
 
 **Backend**
 - FR-25 Supabase backend; single user with a Supabase Auth account (admin-provisioned); RLS enforced.
@@ -197,10 +214,11 @@ flowchart TB
 - **`recurrence` is a filter facet** (toggle/badge); no scheduling engine.
 
 **Component highlights**
-- `EntryForm` — create/edit transaction. Watches `category`; when it resolves to the **debt** category, swaps in a **DebtSelect**, prefills `amount = debt.minimum_payment` (FR-6), and **warns if the debt already has a covering payment this month** (D6). Submitting a debt entry routes to the `record_debt_payment` RPC instead of a plain insert.
-- `MonthView` / `YearView` — separate income/expense tables + period totals + investment-added total; debt annotation for debt rows (FR-12).
+- `EntryForm` — create/edit transaction. Watches `category`; when it resolves to the **debt** category, swaps in a **DebtSelect**, prefills `amount = debt.minimum_payment` (FR-6), and **warns if the debt already has a covering payment this month** (D6). Submitting a debt entry routes to the `record_debt_payment` RPC instead of a plain insert. Watches `type`: income hides the category field and submits `category_id: null`, clearing any value already picked (D11).
+- `MonthView` / `YearView` — separate income/expense tables + period totals + investment-added total; debt annotation for debt rows (FR-12). The income table has **no category column** (D11).
 - `RecommendationBanner` — reads `missing_recommendations(month, year)` (§7.5) and offers one-click add.
-- `InvestmentsPanel` — per-vehicle contributed total + editable market value; shows `totalInterestMoney` amount and % (D1).
+- `Recommended` page — reads `recommendation_status(currentMonth, year)` and splits Pendientes / Ya registradas o vencidas (D15, FR-26). "This month" is literal: the page has no period picker.
+- `InvestedSummaryCard` (dashboard) / `InvestmentsSummaryCard` (investments page) — **market value is the headline figure**, total invested the supporting line; both show `totalInterestMoney` amount and % (D1). Market value edits commit on **Enter** (Escape cancels).
 
 ---
 
@@ -217,7 +235,7 @@ A single-row-per-user **`totals`** table holds `liquid_cash_cents` and `total_in
 - **AFTER DELETE** → `liquid_cash_cents -= signed_effect(OLD)`.
 - **AFTER UPDATE (delta case)** → `liquid_cash_cents += (signed_effect(NEW) − signed_effect(OLD))`. This one expression correctly handles amount changes, type flips (expense↔income), and both at once.
 
-Analogous triggers on `investment_contributions` maintain `total_invested_cents` **and** the per-vehicle running total on `investments.contributed_total_cents` (same insert/delete/update-by-delta pattern).
+Analogous triggers on `investment_contributions` maintain `total_invested_cents` **and** the per-vehicle running total on `investments.contributed_total_cents` (same insert/delete/update-by-delta pattern). **Since 0025 the same trigger also applies each delta to `investments.market_value_cents`** (D1), across every branch including the move-between-vehicles case. Decrementing paths clamp with `greatest(0, …)`, so a hand-lowered market value followed by a contribution delete floors at zero instead of going negative; a `market_value_cents >= 0` CHECK guards direct client writes.
 
 `totalInterestMoney` is **not stored** — it is derived at read time: `SUM(investments.market_value_cents) − total_invested_cents`, with percentage `= totalInterestMoney / total_invested_cents × 100` (returns 0/undefined when `total_invested_cents = 0`).
 
@@ -269,11 +287,24 @@ Debts hold `total_months`, `remaining_months`, `minimum_payment_cents`, `due_day
 
 ### 7.5 Recommended items — derived, not stored per month
 
-Recommended items are **template rows** with a `[window_start, window_end]` recommendation window. "Missing for month M / year Y" is a **query/derived view**, never materialized per month:
+Recommended items are **template rows** with a `[window_start, window_end]` window and a **repeat mode** (D12). Status for a period is a **query/derived view**, never materialized:
 
-> For a given `(month, year)` in America/Mexico_City: return each active recommended item whose window overlaps the month **and** for which **no `transaction` exists in that month/year sharing the item's `category_id`** (D3).
+> *Why derived:* storing per-month rows would require a monthly job plus triggers on every transaction write, and any missed path would silently show a stale status. A query is always correct and stateless. This survived every revision below — the fixes widened the query, they never stored rows.
 
-Exposed as RPC `missing_recommendations(p_month, p_year)`. *Why derived:* storing per-month rows would require a monthly job and could drift; a query is always correct and stateless.
+**`recommendation_status(p_month, p_year)`** is the single source of truth, returning per item:
+
+| Flag | Meaning |
+|------|---------|
+| `is_covered` | A matching transaction exists in the coverage range. Match key = **same type + equal description** (trimmed, case-folded, not a substring) — D3. Range = the queried month, except a `none` item which looks back to `window_start` (D13). |
+| `is_expired` | `window_end` is before the reference day (D14). Open-ended windows never expire. |
+| `is_due` | In-window **and** the repeat rule fires this period **and** not covered. |
+| `covered_on` | Date of the **earliest** covering transaction; `null` when uncovered. Lets the UI say *"Registrada el 14 ago 2025"* without storing status. |
+
+**`missing_recommendations(p_month, p_year)`** is a thin wrapper — `select item … where is_due` — so the banner and the `/recommended` page can never drift apart on the same period.
+
+> **The flags are independent and must stay that way.** `is_covered` is *not* "absent from `missing_recommendations`". That list also omits items which are merely not *due*: a `yearly` item anchored to March is absent every month but March. Inferring coverage from absence would file it as past for eleven months a year (D15).
+
+**Window semantics.** Matching is **month-granular**: `window_start <= <last day of month>` and `window_end >= <first day of month>`, so the *day* component of a repeating item's window never affects the result. The window is the item's **lifetime**, not the days within a month when it is due. The UI must not imply otherwise — labels drop the day for `monthly`/`yearly` and show it in full only for `none`, where it is real. Expiry (D14) is the deliberate exception: it is day-granular.
 
 ### 7.6 Recurrent/variable flag
 
@@ -281,12 +312,12 @@ A plain `recurrence` enum column (`recurrent` | `variable`) on `transactions`, u
 
 ### 7.7 Investments vs. contributions
 
-- **`investments`** = the vehicles (GBM, Cetes, …), each with a trigger-maintained `contributed_total_cents` and a manually-editable `market_value_cents`.
+- **`investments`** = the vehicles (GBM, Cetes, …), each with a trigger-maintained `contributed_total_cents` and a `market_value_cents` that is **both** trigger-maintained (every contribution adds its amount, D1/0025) **and** hand-editable for real gains/losses. Interest is therefore flat across a contribution and only moves on actual market movement.
 - **`investment_contributions`** = money-add events (`investment_id`, `amount_cents`, `contrib_date`).
 - **"Invested this month"** = `SUM(amount_cents)` of contributions where `contrib_date` in month (indexed).
 - **"Invested per vehicle"** = `investments.contributed_total_cents` (trigger-maintained, O(1)).
 - **Grand total invested** = `totals.total_invested_cents` (trigger-maintained).
-- **Market value / interest** = per-vehicle `market_value_cents` (manual); `totalInterestMoney` derived (§7.1).
+- **Market value / interest** = per-vehicle `market_value_cents` (contribution-maintained + manual); `totalInterestMoney` derived (§7.1).
 - Contributions **do not** affect `liquidCash` (D2).
 
 ---
@@ -330,7 +361,7 @@ erDiagram
         integer amount_cents "CHECK > 0"
         date tx_date
         text description
-        uuid category_id FK
+        uuid category_id FK "nullable: NULL iff income (D11)"
         text recurrence "recurrent|variable"
         uuid debt_id FK "nullable"
         timestamptz created_at
@@ -364,7 +395,7 @@ erDiagram
         uuid user_id FK
         text name
         bigint contributed_total_cents
-        bigint market_value_cents
+        bigint market_value_cents "CHECK >= 0; trigger + manual"
         timestamptz created_at
     }
     INVESTMENT_CONTRIBUTIONS {
@@ -379,11 +410,12 @@ erDiagram
         uuid id PK
         uuid user_id FK
         text type "expense|income"
-        uuid category_id FK "nullable"
-        text description
+        uuid category_id FK "nullable; organisational only (D3)"
+        text description "NOT blank: the match key (D3)"
         integer expected_amount_cents "nullable"
         date window_start
         date window_end "nullable"
+        text repeat_mode "monthly|yearly|none (D12)"
         timestamptz created_at
     }
 ```
@@ -392,12 +424,12 @@ erDiagram
 
 - **`totals`** — one row per user (`user_id` PK, FK → `auth.users`). `BIGINT` for headroom. Seeded all-zero on user creation. `totalInterestMoney` is **derived**, not stored.
 - **`categories`** — `UNIQUE(user_id, name)` (D9). `kind` CHECK `IN ('normal','otros','debt')`. Partial unique indexes enforcing exactly one `otros` and one `debt` per user. Deletion of `otros`/`debt` blocked in RPC + belt-and-suspenders trigger.
-- **`transactions`** — `amount_cents INTEGER CHECK (> 0)`; `type`/`recurrence` CHECK enums; `category_id` FK `ON DELETE RESTRICT` (deletion routed through the reassignment RPC); `debt_id` nullable FK, allowed only with the debt category (enforced in RPC + optional constraint trigger). Indexes: `(user_id, tx_date)`, `(user_id, category_id)`, `(user_id, type, tx_date)`, `(user_id, debt_id)`.
+- **`transactions`** — `amount_cents INTEGER CHECK (> 0)`; `type`/`recurrence` CHECK enums; `category_id` **nullable** FK `ON DELETE RESTRICT` (deletion routed through the reassignment RPC); `debt_id` nullable FK, allowed only with the debt category (enforced in RPC + optional constraint trigger). Indexes: `(user_id, tx_date)`, `(user_id, category_id)`, `(user_id, type, tx_date)`, `(user_id, debt_id)`. **`transactions_category_by_type` CHECK (0022, D11):** `(type='income' AND category_id IS NULL) OR (type='expense' AND category_id IS NOT NULL)` — both halves, so a type flip must clear or set the category in the same statement.
 - **`debts`** — `CHECK (remaining_months BETWEEN 0 AND total_months)`, `CHECK (due_day BETWEEN 1 AND 31)`, `CHECK (minimum_payment_cents > 0)`. Index `(user_id, status)`.
 - **`debt_payments`** — links `transaction_id` (FK) so the cash side and debt side trace to one event. Index `(user_id, debt_id, payment_date)`.
-- **`investments`** — `UNIQUE(user_id, name)`; `contributed_total_cents BIGINT` (trigger-maintained); `market_value_cents BIGINT` (manual, default 0).
+- **`investments`** — `UNIQUE(user_id, name)`; `contributed_total_cents BIGINT` (trigger-maintained); `market_value_cents BIGINT` default 0, **trigger-maintained *and* client-writable**, with `investments_market_value_nonneg CHECK (>= 0)` (0025). It is the one column both the trigger and the client may write — the trigger adds contribution deltas, the client sets an absolute value for real gains/losses.
 - **`investment_contributions`** — `amount_cents INTEGER CHECK (> 0)`. Indexes `(user_id, contrib_date)`, `(user_id, investment_id)`.
-- **`recommended_items`** — `CHECK (window_end IS NULL OR window_end >= window_start)`. Index `(user_id, type, category_id)`.
+- **`recommended_items`** — `CHECK (window_end IS NULL OR window_end >= window_start)`. Index `(user_id, type, category_id)`. `repeat_mode recommend_repeat NOT NULL DEFAULT 'monthly'` (0023/0026). **`recommended_items_description_check`: `char_length(btrim(description)) BETWEEN 1 AND 280`** (0029) — description is the match key (D3), so a blank one is an item that could never be satisfied. A `none` item stores `window_end = NULL`, which is what makes it non-expiring and due-until-covered with no special case in the status query.
 - **All tables** carry `user_id uuid NOT NULL DEFAULT auth.uid()` to drive RLS.
 
 *Why `DATE` not `timestamptz` for `tx_date`:* budgeting is day-granular; storing time invites TZ off-by-one at month boundaries. Audit columns (`created_at`) stay `timestamptz`.
@@ -428,8 +460,9 @@ No custom REST server — access is **PostgREST auto-API (RLS-guarded) for CRUD*
 |-----|---------|----------|-----------|
 | `record_debt_payment` | `debt_id, amount_cents, date, description` | `{transaction, debt(updated), covered_minimum, months_decremented}` | Atomic cash expense + payment row + conditional one-month decrement. |
 | `delete_category` | `category_id` | `{deleted_id, reassigned_count}` | Atomic reassign-to-Otros + delete; rejects Otros/debt. |
-| `missing_recommendations` | `month, year` | `[{recommended_item, reason:'missing'}]` | Pure derived query by category + month + year. |
-| `create_debt` (optional) | `name, total_months, minimum_payment_cents, due_day, start_date` | `{debt}` | Sets `remaining_months = total_months`. |
+| `recommendation_status` | `month, year` | `[{item, is_covered, is_due, is_expired, covered_on}]` | **The single source of truth for recommendation matching.** Pure derived query; flags are independent (D15). |
+| `missing_recommendations` | `month, year` | `[{item}]` | Thin wrapper: `where is_due` over `recommendation_status`. Kept so the banner and the page cannot drift. |
+| `create_debt` (optional) | `name, total_months, minimum_payment_cents, due_day, start_date` | `{debt}` | **Never implemented** — the client inserts directly; `remaining_months` is seeded by the form. |
 | `year_summary` (optional) | `year` | `[{month, income_cents, expense_cents, balance_cents, invested_cents}]` | Server-side aggregation for the year view. |
 
 *Why some ops are RPC and others direct-table:* single-row CRUD is safely handled by PostgREST + triggers + RLS; only multi-row/multi-table atomic operations need an RPC.
@@ -595,7 +628,9 @@ Each phase has a verifiable exit criterion.
 | `service_role` leak | Critical | Never in client bundle; secret scanning in CI + pre-commit. |
 | Online-only UX friction | Low/Medium | Clear offline state; SW keeps shell fast; documented trade-off. |
 | Timezone month-boundary bugs (due_day, month filters) | Medium | `DATE`-only storage; fixed `America/Mexico_City`; tests around day 29–31. |
-| Market value staleness (manual entry) | Low | Clearly labeled as manual; `totalInterestMoney` derived from it; future price-feed noted. |
+| Market value staleness (manual entry) | Low | Contributions now keep it moving automatically (D1); only real gains/losses need a hand edit. `totalInterestMoney` derived from it; future price-feed noted. |
+| Market value drifts from reality unnoticed | Medium | It is the one column both a trigger and the client write, and the reconciliation monitor (§15) does **not** cover it — there is no independent truth to reconcile a manual figure against. Guarded by `CHECK (>= 0)` + a `greatest(0, …)` clamp on decrements, and pinned by pgTAP across insert/edit/delete/vehicle-move. A price feed would remove the manual half entirely. |
+| Recommendation match key too coarse or too brittle | Medium | Category matching allowed only one item per category (D3); description matching fixes that but depends on typing the description consistently — a blank one is rejected outright, and matching trims/case-folds. Substring matching was rejected as too eager ("Luz" vs "Luces de navidad"). |
 | Supabase vendor lock-in | Low/Medium | Standard Postgres SQL + thin isolated `src/api/` wrapper. |
 
 ---
@@ -614,4 +649,27 @@ Each phase has a verifiable exit criterion.
 
 ---
 
-*Prepared for the Budget Manager project. All ten open questions resolved (see Part 0). Implementation pending explicit approval.*
+## 21. Post-approval revision log
+
+Changes made after the architecture was approved, each signed off by the product owner. Migrations `0001–0021` implement the document as originally approved; `0022+` are the revisions.
+
+| Migration(s) | Change | Supersedes |
+|---|---|---|
+| `0022` | Income carries no category; `transactions.category_id` nullable + `transactions_category_by_type` CHECK. | FR-4 → D11 |
+| `0023`, `0026` | `repeat_mode` on recommended items: `monthly` / `yearly` / `none`. | FR-24 → D12 |
+| `0024` | Recommendation matching split per type (expense→category, income→description). | *Interim; itself superseded by 0029.* |
+| `0025` | Contributions raise `market_value_cents`; clamp + `>= 0` CHECK. | D1 |
+| `0027` | `recommendation_status` RPC (independent `is_covered`/`is_due`/`is_expired`); `missing_recommendations` becomes a wrapper over it. | §7.5 |
+| `0028` | One-off coverage looks back to `window_start`; day-granular expiry; `covered_on`. | D13, D14 |
+| `0029` | **Description is the match key for both types**; category organisational only; description required (CHECK). | D3 |
+
+**Known open item (not a bug, undecided):** a `yearly` item outside its anniversary month is not due, not covered and not expired, so it sits in **Pendientes** for eleven months reading "Pendiente" — correct (it *is* an active recommendation) but it looks actionable when it is not. Surfacing "Próximo: <month> <year>" via the existing `is_due` flag would fix it as a display-only change.
+
+**Two lessons worth keeping.**
+
+1. *Migrations that exist are not migrations that ran.* `0016`, `0017` and `0019` sat unapplied while `0020`/`0021` had been applied around them, so every RPC 404'd and surfaced as a generic "error inesperado" in unrelated features. The migration files, the `schema_migrations` table, and the live schema are three different things — check `supabase migration list` before debugging application code.
+2. *pgTAP passing is not the same as pgTAP running.* Several suites had never been green (a test created a function while the role was `authenticated`, which cannot work), and nothing noticed because the RPCs under test did not exist.
+
+---
+
+*Prepared for the Budget Manager project. Implemented through Phase 7; see §21 for post-approval revisions.*

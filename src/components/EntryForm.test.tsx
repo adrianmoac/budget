@@ -61,6 +61,53 @@ describe('EntryForm validation', () => {
   });
 });
 
+describe('EntryForm income has no category', () => {
+  it('hides the category field when the type is income', async () => {
+    const user = userEvent.setup();
+    render(<EntryForm open onOpenChange={vi.fn()} />);
+
+    // Default type is expense, so the category field starts visible.
+    expect(screen.getByLabelText('Categoría')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Tipo'));
+    await user.click(await screen.findByRole('option', { name: 'Ingreso' }));
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Categoría')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('submits a null category_id for an income', async () => {
+    const user = userEvent.setup();
+    render(<EntryForm open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByLabelText('Tipo'));
+    await user.click(await screen.findByRole('option', { name: 'Ingreso' }));
+    await user.type(screen.getByLabelText('Monto'), '1500');
+    await user.click(screen.getByRole('button', { name: 'Agregar' }));
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1));
+    expect(createMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'income', amount_cents: 150_000, category_id: null }),
+    );
+  });
+
+  it('still requires a category for an expense', async () => {
+    const user = userEvent.setup();
+    render(<EntryForm open onOpenChange={vi.fn()} />);
+
+    await user.type(screen.getByLabelText('Monto'), '1500');
+    await user.click(screen.getByRole('button', { name: 'Agregar' }));
+
+    // Asserted via aria-invalid rather than the message text: the Select's
+    // placeholder is the same string, so a text query would be ambiguous.
+    await waitFor(() =>
+      expect(screen.getByLabelText('Categoría')).toHaveAttribute('aria-invalid', 'true'),
+    );
+    expect(createMutateAsync).not.toHaveBeenCalled();
+  });
+});
+
 describe('EntryForm money conversion (edit)', () => {
   it('converts a pesos amount to integer centavos without float drift', async () => {
     const user = userEvent.setup();

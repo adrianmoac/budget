@@ -146,6 +146,12 @@ function InvestmentRow({
               min="0"
               value={pesos}
               onChange={(e) => setPesos(e.target.value)}
+              // Enter commits, Escape backs out. The input is not inside a form, so
+              // Enter has no default submit behaviour to prevent.
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') save();
+                else if (e.key === 'Escape') setEditing(false);
+              }}
               className="h-8 w-28"
               aria-label={`Valor de mercado de ${investment.name}`}
             />

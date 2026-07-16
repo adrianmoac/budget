@@ -63,11 +63,13 @@ export function InvestedSummaryCard() {
 
   return (
     <Card>
+      {/* Market value is the headline figure; total invested is the smaller
+          supporting line beneath it. */}
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div className="space-y-1">
-          <CardDescription>Total invertido</CardDescription>
+          <CardDescription>Valor de mercado</CardDescription>
           <CardTitle className="text-3xl">
-            {loading ? <Skeleton className="h-9 w-40" /> : formatMXN(totalInvested)}
+            {loading ? <Skeleton className="h-9 w-40" /> : formatMXN(totalMarketValue)}
           </CardTitle>
         </div>
         <TrendingUp className="h-5 w-5 text-muted-foreground" />
@@ -81,8 +83,8 @@ export function InvestedSummaryCard() {
         ) : (
           <>
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Valor de mercado</span>
-              <span className="font-medium">{formatMXN(totalMarketValue)}</span>
+              <span className="text-muted-foreground">Total invertido</span>
+              <span className="font-medium">{formatMXN(totalInvested)}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Rendimiento</span>
@@ -179,6 +181,12 @@ function VehicleRow({ investment }: { investment: Investment }) {
             min="0"
             value={pesos}
             onChange={(e) => setPesos(e.target.value)}
+            // Enter commits, Escape backs out. The input is not inside a form, so
+            // Enter has no default submit behaviour to prevent.
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') save();
+              else if (e.key === 'Escape') setEditing(false);
+            }}
             className="h-8 w-28"
             aria-label={`Valor de mercado de ${investment.name}`}
           />

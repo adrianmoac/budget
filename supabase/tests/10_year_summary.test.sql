@@ -11,8 +11,7 @@ select set_config('request.jwt.claims', '{"sub":"e0000000-0000-0000-0000-0000000
 
 -- March 2026: income 10000, expense 4000 → balance 6000.
 insert into transactions (type, amount_cents, tx_date, description, category_id)
-  values ('income', 10000, '2026-03-05', 'Sueldo',
-          (select id from categories where kind = 'otros'));
+  values ('income', 10000, '2026-03-05', 'Sueldo', null);  -- income: no category (0022)
 insert into transactions (type, amount_cents, tx_date, description, category_id)
   values ('expense', 4000, '2026-03-20', 'Gasto',
           (select id from categories where kind = 'otros'));
@@ -23,8 +22,7 @@ insert into investment_contributions (investment_id, amount_cents, contrib_date)
 
 -- A prior-year income must not leak into 2026.
 insert into transactions (type, amount_cents, tx_date, description, category_id)
-  values ('income', 99999, '2025-03-05', 'Sueldo previo',
-          (select id from categories where kind = 'otros'));
+  values ('income', 99999, '2025-03-05', 'Sueldo previo', null);
 
 select is((select count(*)::int from year_summary(2026)), 12,
   'year_summary returns exactly 12 rows');
