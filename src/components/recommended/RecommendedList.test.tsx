@@ -13,6 +13,7 @@ function item(over: Partial<RecommendedItem>): RecommendedItem {
     expected_amount_cents: null,
     window_start: '2026-01-01',
     window_end: null,
+    repeat_mode: 'monthly',
     created_at: '',
     ...over,
   };

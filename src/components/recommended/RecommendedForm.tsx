@@ -60,6 +60,7 @@ function toDefaults(item?: RecommendedItem): RecommendedItemFormInput {
           : fromCentavos(item.expected_amount_cents),
       window_start: item.window_start,
       window_end: item.window_end ?? '',
+      repeat_mode: item.repeat_mode,
     };
   }
   return {
@@ -69,6 +70,7 @@ function toDefaults(item?: RecommendedItem): RecommendedItemFormInput {
     expectedPesos: Number.NaN,
     window_start: todayISOMX(),
     window_end: '',
+    repeat_mode: 'monthly',
   };
 }
 
@@ -89,11 +91,14 @@ export function RecommendedForm({
     control,
     reset,
     setError,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<RecommendedItemFormInput>({
     resolver: zodResolver(recommendedItemFormSchema),
     defaultValues: toDefaults(item),
   });
+
+  const type = watch('type');
 
   useEffect(() => {
     if (open) reset(toDefaults(item));
@@ -112,11 +117,14 @@ export function RecommendedForm({
 
     const payload: RecommendedItemInput = {
       type: values.type,
-      category_id: values.category_id ?? null,
+      // Income items are matched by description, not category (0024), so they
+      // never carry one.
+      category_id: values.type === 'income' ? null : (values.category_id ?? null),
       description: values.description,
       expected_amount_cents: expectedCents,
       window_start: values.window_start,
       window_end: values.window_end ?? null,
+      repeat_mode: values.repeat_mode,
     };
 
     try {
@@ -170,6 +178,29 @@ export function RecommendedForm({
               />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="repeat_mode">Repetir</Label>
+              <Controller
+                control={control}
+                name="repeat_mode"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="repeat_mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">Cada mes</SelectItem>
+                      <SelectItem value="yearly">Cada año</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          </div>
+
+          {/* Categoría drives expense matching only; income matches on the
+              description instead (0024), so the field is hidden for it. */}
+          {type === 'income' ? null : (
+            <div className="space-y-2">
               <Label htmlFor="category_id">Categoría</Label>
               <Controller
                 control={control}
@@ -177,9 +208,7 @@ export function RecommendedForm({
                 render={({ field }) => (
                   <Select
                     value={field.value ? field.value : NO_CATEGORY}
-                    onValueChange={(v) =>
-                      field.onChange(v === NO_CATEGORY ? '' : v)
-                    }
+                    onValueChange={(v) => field.onChange(v === NO_CATEGORY ? '' : v)}
                   >
                     <SelectTrigger id="category_id">
                       <SelectValue />
@@ -196,7 +225,7 @@ export function RecommendedForm({
                 )}
               />
             </div>
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="description">Descripción</Label>
@@ -208,6 +237,11 @@ export function RecommendedForm({
             />
             {errors.description ? (
               <p className="text-sm text-destructive">{errors.description.message}</p>
+            ) : type === 'income' ? (
+              <p className="text-sm text-muted-foreground">
+                Se compara con la descripción de tus ingresos para saber si ya lo
+                registraste este periodo.
+              </p>
             ) : null}
           </div>
 

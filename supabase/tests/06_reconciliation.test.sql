@@ -11,7 +11,7 @@ select set_config('request.jwt.claims', '{"sub":"f0000000-0000-0000-0000-0000000
 
 -- A mixed sequence of transactions and contributions.
 insert into transactions (type, amount_cents, tx_date, category_id) values
-  ('income',  100000, '2026-03-01', (select id from categories where kind = 'normal' and name = 'Personal')),
+  ('income',  100000, '2026-03-01', null),  -- income carries no category (0022)
   ('expense',  40000, '2026-03-05', (select id from categories where kind = 'normal' and name = 'Comida')),
   ('expense',   5000, '2026-03-06', (select id from categories where kind = 'normal' and name = 'Súper'));
 insert into investment_contributions (investment_id, amount_cents, contrib_date) values

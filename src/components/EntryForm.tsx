@@ -48,7 +48,8 @@ function toDefaults(transaction?: Transaction): EntryFormInput {
       amountPesos: transaction.amount_cents / 100,
       tx_date: transaction.tx_date,
       description: transaction.description,
-      category_id: transaction.category_id,
+      // Income rows carry no category (0022); '' is the unselected-Select sentinel.
+      category_id: transaction.category_id ?? '',
       recurrence: transaction.recurrence,
     };
   }
@@ -112,8 +113,18 @@ export function EntryForm({ open, onOpenChange, transaction }: EntryFormProps) {
 
   const categoryId = watch('category_id');
   const txDate = watch('tx_date');
+  const type = watch('type');
   const selectedCategory = categories.find((c) => c.id === categoryId);
   const debtMode = !isEdit && selectedCategory?.kind === 'debt';
+  // Income carries no category (0022), so the field is hidden entirely for it.
+  const showCategory = type !== 'income';
+
+  // Switching to income drops any category already picked, so a subsequent switch
+  // back to expense re-opens an empty select rather than a silently retained value
+  // — and the submitted payload can never violate transactions_category_by_type.
+  useEffect(() => {
+    if (type === 'income' && categoryId) setValue('category_id', '');
+  }, [type, categoryId, setValue]);
 
   const paymentsQuery = useDebtPayments(
     debtMode && selectedDebtId ? selectedDebtId : undefined,
@@ -163,7 +174,8 @@ export function EntryForm({ open, onOpenChange, transaction }: EntryFormProps) {
       amount_cents: amountCents,
       tx_date: values.tx_date,
       description: values.description,
-      category_id: values.category_id,
+      // Income stores no category; the DB CHECK rejects anything else (0022).
+      category_id: values.type === 'income' ? null : values.category_id,
       recurrence: values.recurrence,
     };
 
@@ -243,6 +255,8 @@ export function EntryForm({ open, onOpenChange, transaction }: EntryFormProps) {
             </div>
           )}
 
+          {/* Categoría: expenses only — an income has no category (0022). */}
+          {showCategory ? (
           <div className="space-y-2">
             <Label htmlFor="category_id">Categoría</Label>
             <Controller
@@ -273,6 +287,7 @@ export function EntryForm({ open, onOpenChange, transaction }: EntryFormProps) {
               <p className="text-sm text-destructive">{errors.category_id.message}</p>
             ) : null}
           </div>
+          ) : null}
 
           {/* Debt branch: pick which debt this payment applies to (FR-6, §4.9). */}
           {debtMode ? (

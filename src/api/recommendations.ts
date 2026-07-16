@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AppError } from './errors';
 import { supabase } from './supabaseClient';
-import type { RecommendedItem } from '@/domain/types';
+import type { RecommendedItem, RecommendRepeat } from '@/domain/types';
 
 /**
  * Recommended items (spec §3.1, §4.8) are plain template rows CRUD'd via table ops.
@@ -12,11 +12,14 @@ import type { RecommendedItem } from '@/domain/types';
 
 export interface RecommendedItemInput {
   type: 'expense' | 'income';
+  /** Expense match key (D3); always `null` for income, which matches on description. */
   category_id: string | null;
   description: string;
   expected_amount_cents: number | null;
   window_start: string;
   window_end: string | null;
+  /** 'monthly' = every month in the window; 'yearly' = window_start's month only. */
+  repeat_mode: RecommendRepeat;
 }
 
 /** All recommendation templates, newest first (feeds the /recommended list). */

@@ -6,6 +6,7 @@ import { ContributionForm } from '@/components/investments/ContributionForm';
 import { ContributionHistory } from '@/components/investments/ContributionHistory';
 import { InvestmentForm } from '@/components/investments/InvestmentForm';
 import { InvestmentList } from '@/components/investments/InvestmentList';
+import { InvestmentsSummaryCard } from '@/components/investments/InvestmentsSummaryCard';
 import { ErrorState } from '@/components/states';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -84,13 +85,16 @@ export function Investments() {
           onRetry={() => void investmentsQuery.refetch()}
         />
       ) : (
-        <InvestmentList
-          investments={investments}
-          onAddContribution={openContribution}
-          onViewHistory={setHistory}
-          onEdit={openEdit}
-          onDelete={setDeleting}
-        />
+        <>
+          <InvestmentsSummaryCard investments={investments} loading={false} />
+          <InvestmentList
+            investments={investments}
+            onAddContribution={openContribution}
+            onViewHistory={setHistory}
+            onEdit={openEdit}
+            onDelete={setDeleting}
+          />
+        </>
       )}
 
       <InvestmentForm

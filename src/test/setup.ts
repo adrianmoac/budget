@@ -1,6 +1,12 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach, vi } from 'vitest';
+import { afterEach, expect, vi } from 'vitest';
+// Registers the `toHaveNoViolations` matcher for the a11y audit tests
+// (CP-7.2, WCAG 2.1 AA — architecture §3 Accessibility). Matcher types are
+// augmented in ./vitest-axe.d.ts.
+import * as axeMatchers from 'vitest-axe/matchers';
+
+expect.extend(axeMatchers);
 
 afterEach(() => {
   cleanup();

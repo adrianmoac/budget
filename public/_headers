@@ -1,0 +1,24 @@
+# HTTP security headers for the static PWA shell (architecture §13, CP-7.1).
+# Format read by Netlify and Cloudflare Pages. Vercel users: port these into a
+# `vercel.json` "headers" block instead (see docs/HARDENING.md).
+#
+# IMPORTANT: replace YOUR_PROJECT_REF below with the production Supabase project
+# ref so `connect-src` allowlists exactly that origin (and its realtime socket).
+# Everything else is host-agnostic.
+
+/*
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://YOUR_PROJECT_REF.supabase.co wss://YOUR_PROJECT_REF.supabase.co; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Never let the service worker or the app entry go stale — always revalidate so a
+# new deploy is picked up. Authenticated financial responses are served directly
+# by Supabase (never by this host) and are marked no-store there / NetworkOnly in
+# the service worker, so no Cache-Control is needed for them here.
+/sw.js
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache

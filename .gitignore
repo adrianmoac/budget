@@ -2,7 +2,6 @@
 .claude
 beforePrompt.md
 .DS_Store
-.github
 
 # Dependencies
 node_modules/

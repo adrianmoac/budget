@@ -92,11 +92,16 @@ select throws_ok(
 
 -- ---- Multi-step rollback: force the final debt_payments insert to fail and
 -- prove the expense insert AND the month decrement are both reverted. ----
+-- The `authenticated` role has no CREATE on schema public, so drop back to the
+-- superuser to install the fault-injection trigger, then resume as the caller —
+-- the RPC under test must still run under RLS for this to prove anything.
+reset role;
 create function _force_fail_payment() returns trigger language plpgsql as $$
 begin raise exception 'forced_failure' using errcode = 'P0001'; end;
 $$;
 create trigger _force_fail before insert on debt_payments
   for each row execute function _force_fail_payment();
+set local role authenticated;
 
 create temp table lc2 as select liquid_cash_cents from totals;
 create temp table txcount as select count(*)::int as n from transactions;
@@ -114,8 +119,10 @@ select is((select remaining_months from debts where name = 'Debt A'), 5,
 select is((select count(*)::int from transactions), (select n from txcount),
   'rollback leaves no orphaned transaction');
 
+reset role;
 drop trigger _force_fail on debt_payments;
 drop function _force_fail_payment();
+set local role authenticated;
 
 -- ---- Manual remaining_months override is bounded to [0, total_months] (D4) ----
 select throws_ok(

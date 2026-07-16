@@ -10,7 +10,8 @@ insert into auth.users (id, email)
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"b0000000-0000-0000-0000-000000000001"}', true);
 
--- Row A: expense 10000; Row B: income 30000. Use a normal category.
+-- Row A: expense 10000, in a normal category. Row B: income 30000, uncategorized —
+-- income carries no category (0022), enforced by transactions_category_by_type.
 insert into transactions (id, type, amount_cents, tx_date, category_id)
   values ('bbbbbbbb-0000-0000-0000-00000000000a', 'expense', 10000, '2026-01-15',
           (select id from categories where kind = 'normal' and name = 'Comida'));
@@ -18,8 +19,7 @@ select is((select liquid_cash_cents from totals), (-10000)::bigint,
   'insert expense decrements liquid cash');
 
 insert into transactions (id, type, amount_cents, tx_date, category_id)
-  values ('bbbbbbbb-0000-0000-0000-00000000000b', 'income', 30000, '2026-01-16',
-          (select id from categories where kind = 'normal' and name = 'Comida'));
+  values ('bbbbbbbb-0000-0000-0000-00000000000b', 'income', 30000, '2026-01-16', null);
 select is((select liquid_cash_cents from totals), 20000::bigint,
   'insert income increments liquid cash');
 
@@ -29,12 +29,16 @@ select is((select liquid_cash_cents from totals), 15000::bigint,
   'update amount adjusts liquid cash by the delta');
 
 -- Type flip: A expense 15000 -> income 15000. Delta = +30000. 15000 -> 45000.
-update transactions set type = 'income' where id = 'bbbbbbbb-0000-0000-0000-00000000000a';
+-- A flip to income must drop the category in the same statement (0022).
+update transactions set type = 'income', category_id = null
+  where id = 'bbbbbbbb-0000-0000-0000-00000000000a';
 select is((select liquid_cash_cents from totals), 45000::bigint,
   'type flip expense->income adjusts liquid cash correctly');
 
 -- Amount + type together: B income 30000 -> expense 5000. Delta = -35000. 45000 -> 10000.
-update transactions set type = 'expense', amount_cents = 5000
+-- The reverse flip must supply a category in the same statement (0022).
+update transactions set type = 'expense', amount_cents = 5000,
+       category_id = (select id from categories where kind = 'normal' and name = 'Comida')
   where id = 'bbbbbbbb-0000-0000-0000-00000000000b';
 select is((select liquid_cash_cents from totals), 10000::bigint,
   'combined amount+type change adjusts liquid cash correctly');
