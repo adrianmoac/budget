@@ -38,7 +38,10 @@ export function TransactionTable({
   const showCategory = kind !== 'income';
 
   return (
-    <Card>
+    // min-w-0: as a grid item the card defaults to min-width:auto, which refuses to
+    // shrink below the table's intrinsic width — the scroll wrapper below then never
+    // gets a narrow box to scroll inside and the whole page scrolls sideways instead.
+    <Card className="min-w-0">
       <CardHeader className="pb-2">
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>
@@ -46,7 +49,7 @@ export function TransactionTable({
         {transactions.length === 0 ? (
           <EmptyState title="Sin movimientos este mes" />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">

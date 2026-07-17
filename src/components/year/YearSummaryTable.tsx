@@ -26,7 +26,7 @@ export function YearSummaryTable({ rows }: YearSummaryTableProps) {
   return (
     <Card>
       <CardContent className="p-0">
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full text-sm">
             <caption className="sr-only">Resumen por mes del año</caption>
             <thead>
