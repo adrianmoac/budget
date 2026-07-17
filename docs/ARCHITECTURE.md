@@ -50,6 +50,8 @@ These were confirmed by the product owner and are not re-litigated:
 | D13 | **When is a one-off "paid"?** | **Ever, since `window_start`** (0028). A `none` item is covered by any matching transaction from its start date up to the end of the queried period. Repeating items keep per-period coverage — rent is owed again every month. *Why:* checking a one-off per-month meant something paid in Aug 2025 looked unpaid in every later month, sat in Pendientes forever and the banner nagged indefinitely. The upper bound keeps historical queries honest: a later payment cannot retroactively cover an earlier month. |
 | D14 | **When does a window expire?** | **The day after `window_end`** (0028), not the month after. Measured against a reference day: *today* (America/Mexico_City) when the queried period is the current month, else that month's first day — so a historical query never expires an item inside its own window. An item expiring **today** is still pending. Deliberately finer than the coverage match, which stays month-granular: *"is the window still open?"* is a question about now, while *"was it paid?"* is a question about a period. |
 | D15 | **Pending vs. past split** | Past = `is_expired OR is_covered`; pending = everything else. The three status flags are **independent facts** and coverage is never inferred from absence in the "missing" list — that list also omits items which are merely *not due* (a `yearly` item is absent 11 months a year), which would misfile them as past. Accepted consequence: a `monthly` item moves between the two tables as it is covered each month, and the past table mixes "done this month" with "expired" — hence its label, *"Ya registradas o vencidas"*. |
+| D16 | **Completing a recommendation in one click** | The banner's *Completada* button writes a plain transaction — **no RPC**: it is a single insert, so there is no multi-step atomicity to protect (contrast §7.2). It only ever fills in what the user would have typed: the item's own description (verbatim — being the match key, that is precisely what then clears the item), its `expected_amount_cents`, dated today; `recurrence` = `recurrent` for a repeating item, `variable` for a one-off. <br>**Nothing is invented.** With no `expected_amount_cents` there is no honest amount to write, so it opens the prefilled `EntryForm` and asks for that one unknown field instead of guessing. <br>**Category fallback:** an expense MUST carry a category (D11) but a recommendation's category is *optional*, so a category-less expense item resolves to **Otros** — the category that exists for exactly this. Income always resolves to `null`. |
+| D17 | **Category filter is expenses-only** | Income carries no category (D11), so a category-scoped month view has **no income and no meaningful balance**. Selecting a category therefore hides the income table and drops the *Ingresos* / *Balance* tiles rather than rendering a `$0` income beside a filtered expense total — which would make *Balance* read as full-income − filtered-expense, a number that means nothing. *Invertido* stays: it is an independent month fact that no table filter touches. This preserves **AC-Month/Year views** (*period totals equal the sum of the displayed rows*). |
 
 ### 0.2 Assumptions
 
@@ -91,7 +93,7 @@ Security is enforced via **Row-Level Security keyed to `auth.uid()`** on every t
 - FR-10 CRUD the investment vehicles themselves (name + market value). Market value is hand-editable **and** contribution-maintained (D1); it can never be negative (CHECK). Seed: GBM, Cetes.
 
 **Views**
-- FR-11 Default view: expenses and incomes in **separate tables, per selected month**.
+- FR-11 Default view: expenses and incomes in **separate tables, per selected month**, filterable by **recurrence** and by **category** (the latter is expenses-only — D17).
 - FR-12 For debt-category expenses in the monthly view, show **which debt** is being paid.
 - FR-13 Full-year view with year selector (per-month income/expense/balance/invested).
 - FR-14 Period totals: **total income, total expense, balance**.
@@ -110,8 +112,10 @@ Security is enforced via **Row-Level Security keyed to `auth.uid()`** on every t
 
 **Recommended items**
 - FR-23 If an expected expense/income is missing for a month, **recommend adding it** — derived by **description + period** (D3, superseding the original category match).
-- FR-24 CRUD recommended items, their start/end recommendation window, and their **repeat mode** (`monthly` / `yearly` / `none`, D12).
+- FR-24 CRUD recommended items, their start/end recommendation window, and their **repeat mode** (`monthly` / `yearly` / `none`, D12). A new item defaults to **`none`** in the form; the column default stays `monthly` for rows written before it existed.
 - FR-26 The `/recommended` page splits items into **Pendientes** and **Ya registradas o vencidas** (D15), showing per-item state — `Registrada el <date>` / `Vencida` / `Pendiente`. The covering date is derived, never stored (§7.5).
+- FR-27 **Complete a recommendation in one click** from the dashboard, generating the movement from the item itself (D16).
+- FR-28 Fill a new entry **from a pending recommendation**, chosen from a dropdown in the entry form (§6).
 
 **Backend**
 - FR-25 Supabase backend; single user with a Supabase Auth account (admin-provisioned); RLS enforced.
@@ -214,9 +218,9 @@ flowchart TB
 - **`recurrence` is a filter facet** (toggle/badge); no scheduling engine.
 
 **Component highlights**
-- `EntryForm` — create/edit transaction. Watches `category`; when it resolves to the **debt** category, swaps in a **DebtSelect**, prefills `amount = debt.minimum_payment` (FR-6), and **warns if the debt already has a covering payment this month** (D6). Submitting a debt entry routes to the `record_debt_payment` RPC instead of a plain insert. Watches `type`: income hides the category field and submits `category_id: null`, clearing any value already picked (D11).
-- `MonthView` / `YearView` — separate income/expense tables + period totals + investment-added total; debt annotation for debt rows (FR-12). The income table has **no category column** (D11).
-- `RecommendationBanner` — reads `missing_recommendations(month, year)` (§7.5) and offers one-click add.
+- `EntryForm` — create/edit transaction. Watches `category`; when it resolves to the **debt** category, swaps in a **DebtSelect**, prefills `amount = debt.minimum_payment` (FR-6), and **warns if the debt already has a covering payment this month** (D6). Submitting a debt entry routes to the `record_debt_payment` RPC instead of a plain insert. Watches `type`: income hides the category field and submits `category_id: null`, clearing any value already picked (D11). The category dropdown also carries a **"Desde una recomendación…" sentinel** (FR-28) — not a category, so it never reaches `category_id`; picking a pending item copies its description and expected amount and resolves the field to that item's **own** category (Otros if it has none, D16), after which the sentinel clears and the dropdown shows the real category that will be saved.
+- `MonthView` / `YearView` — separate income/expense tables + period totals + investment-added total; debt annotation for debt rows (FR-12). The income table has **no category column** (D11). Filtering by category hides the income table and narrows the totals bar to the expense scope (D17); filtering happens client-side over the month's already-fetched rows — no extra query.
+- `RecommendationBanner` — reads `missing_recommendations(month, year)` (§7.5). **Completada** generates the movement in one click (D16); **Agregar** opens a blank `EntryForm`.
 - `Recommended` page — reads `recommendation_status(currentMonth, year)` and splits Pendientes / Ya registradas o vencidas (D15, FR-26). "This month" is literal: the page has no period picker.
 - `InvestedSummaryCard` (dashboard) / `InvestmentsSummaryCard` (investments page) — **market value is the headline figure**, total invested the supporting line; both show `totalInterestMoney` amount and % (D1). Market value edits commit on **Enter** (Escape cancels).
 
@@ -627,7 +631,7 @@ Each phase has a verifiable exit criterion.
 | Float creep in money | High | Integers everywhere; conversion only at edges; property tests on money helpers. |
 | `service_role` leak | Critical | Never in client bundle; secret scanning in CI + pre-commit. |
 | Online-only UX friction | Low/Medium | Clear offline state; SW keeps shell fast; documented trade-off. |
-| Timezone month-boundary bugs (due_day, month filters) | Medium | `DATE`-only storage; fixed `America/Mexico_City`; tests around day 29–31. |
+| Timezone month-boundary bugs (due_day, month filters) | Medium | `DATE`-only storage; fixed `America/Mexico_City`; tests around day 29–31. **Anything comparing against "today" — code *or* test — must use the MX date, never the server clock.** `recommendation_status` (D14) derives `(now() at time zone 'America/Mexico_City')::date`; a pgTAP test that anchored fixtures to `current_date` instead passed all MX morning and failed every evening, because the test container runs UTC and MX is UTC-6. See §21. |
 | Market value staleness (manual entry) | Low | Contributions now keep it moving automatically (D1); only real gains/losses need a hand edit. `totalInterestMoney` derived from it; future price-feed noted. |
 | Market value drifts from reality unnoticed | Medium | It is the one column both a trigger and the client write, and the reconciliation monitor (§15) does **not** cover it — there is no independent truth to reconcile a manual figure against. Guarded by `CHECK (>= 0)` + a `greatest(0, …)` clamp on decrements, and pinned by pgTAP across insert/edit/delete/vehicle-move. A price feed would remove the manual half entirely. |
 | Recommendation match key too coarse or too brittle | Medium | Category matching allowed only one item per category (D3); description matching fixes that but depends on typing the description consistently — a blank one is rejected outright, and matching trims/case-folds. Substring matching was rejected as too eager ("Luz" vs "Luces de navidad"). |
@@ -663,12 +667,22 @@ Changes made after the architecture was approved, each signed off by the product
 | `0028` | One-off coverage looks back to `window_start`; day-granular expiry; `covered_on`. | D13, D14 |
 | `0029` | **Description is the match key for both types**; category organisational only; description required (CHECK). | D3 |
 
+**UI-only revisions (no migration).** These change behaviour but not the schema or any contract, so they carry no migration number — they are pinned by frontend tests rather than pgTAP:
+
+| Change | Decision |
+|---|---|
+| One-click **Completada** on the dashboard banner; falls back to the prefilled form when the item has no expected amount; category-less expense items resolve to Otros. | D16, FR-27 |
+| **"Desde una recomendación…"** sentinel in the entry form's category dropdown. | D16, FR-28 |
+| **Category filter** on the month view — expenses-only; hides the income table and the Ingresos/Balance tiles. | D17, FR-11 |
+| New recommendations default to **`none`** in the form (the column default stays `monthly`). | D12, FR-24 |
+
 **Known open item (not a bug, undecided):** a `yearly` item outside its anniversary month is not due, not covered and not expired, so it sits in **Pendientes** for eleven months reading "Pendiente" — correct (it *is* an active recommendation) but it looks actionable when it is not. Surfacing "Próximo: <month> <year>" via the existing `is_due` flag would fix it as a display-only change.
 
 **Two lessons worth keeping.**
 
 1. *Migrations that exist are not migrations that ran.* `0016`, `0017` and `0019` sat unapplied while `0020`/`0021` had been applied around them, so every RPC 404'd and surfaced as a generic "error inesperado" in unrelated features. The migration files, the `schema_migrations` table, and the live schema are three different things — check `supabase migration list` before debugging application code.
 2. *pgTAP passing is not the same as pgTAP running.* Several suites had never been green (a test created a function while the role was `authenticated`, which cannot work), and nothing noticed because the RPCs under test did not exist.
+3. *A test that reads the clock must read the same clock as the code.* The day-granular expiry tests anchored their fixtures to `current_date` — the server's UTC date — while the RPC correctly uses the `America/Mexico_City` date. For the six hours a day when the two disagree (18:00 MX onward), `current_date - 1` is *today* in MX, and the suite failed. It was green when written and broke hours later with no code change. The tests now derive today via a `pg_temp.mx_today()` helper; if you add a time-dependent assertion, use it.
 
 ---
 
