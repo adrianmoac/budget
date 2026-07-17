@@ -141,7 +141,7 @@ export function DebtForm({ open, onOpenChange, debt }: DebtFormProps) {
             ) : null}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="total_months">Meses totales</Label>
               <Input
@@ -168,7 +168,7 @@ export function DebtForm({ open, onOpenChange, debt }: DebtFormProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="due_day">Día de vencimiento</Label>
               <Input
