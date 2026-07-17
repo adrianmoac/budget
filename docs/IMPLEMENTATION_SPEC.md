@@ -3,7 +3,7 @@
 **Companion to:** `docs/ARCHITECTURE.md` (the source of truth; this document expands it, it does not override it).
 **Audience:** A senior engineer who will build the app without making architectural decisions.
 **Rule:** If this spec and the architecture ever disagree, the architecture wins — raise the conflict, do not silently diverge.
-**Status:** Built through P7. Contracts below reflect migrations `0001–0029`; post-approval revisions are marked **Revised (NNNN)** and are catalogued in architecture **§21**.
+**Status:** Built through P7. Contracts below reflect migrations `0001–0029`; post-approval revisions are marked **Revised (NNNN)** and are catalogued in architecture **§21**. Revisions with no schema change carry no migration number and are marked by their decision instead — **Revised (D18)** — and are listed in §21's *UI-only revisions* table.
 
 No application code appears here. Schema, triggers, RPCs, and components are specified as contracts and pseudocode.
 
@@ -161,7 +161,7 @@ Index: `(user_id, status)`.
 | id | uuid | PK |
 | user_id | uuid | NOT NULL, FK, default auth.uid() |
 | name | text | NOT NULL, length 1–80 |
-| contributed_total_cents | bigint | NOT NULL default 0 (trigger-maintained; app MUST NOT write) |
+| contributed_total_cents | bigint | NOT NULL default 0 (trigger-maintained; app MUST NOT write — but **since D18 it is what the UI reads** for the grand total invested) |
 | market_value_cents | bigint | NOT NULL default 0, CHECK `>= 0`. **Revised (0025):** trigger-maintained **and** client-writable — see below |
 | created_at | timestamptz | NOT NULL default now() |
 
@@ -447,7 +447,9 @@ Global states convention: **loading** = skeletons (never layout shift), **empty*
 
 - **Purpose:** at-a-glance financial position.
 - **Components:** `LiquidCashCard`, `InvestedSummaryCard` (market value headline + total invested + interest amount/%, per-vehicle rows), `PendingDebtsList` (current month), `QuickAddButton` (opens `EntryForm` modal), `MonthPicker` (drives pending debts + recommendation banner), `RecommendationBanner`.
-- **Flow:** loads `totals` + `investments` + pending debts + `missing_recommendations(currentMonth, year)`.
+- **Flow:** loads `totals` + `investments` + pending debts + `missing_recommendations(currentMonth, year)`. **Revised (D18):** `LiquidCashCard` reads `totals`; `InvestedSummaryCard` reads **only** `['investments']` and no longer calls `useTotals` at all.
+- **`InvestedSummaryCard` totals (D18):** both headline figures are summed over the fetched vehicle list —
+  `totalMarketValue = SUM(market_value_cents)`, `totalInvested = SUM(contributed_total_cents)` — so *Total invertido* always equals the *Aportado* rows the same card lists beneath it, and `totalInterestMoney` subtracts two figures from one source. It MUST NOT read `totals.total_invested_cents`: that column can sit at 0 while the vehicles hold contributions (see architecture §19), which is exactly the contradiction D18 removes. `['investments']` is invalidated by every contribution mutation, so the sum stays live.
 - **`RecommendationBanner` → "Completada" (FR-27, D16):** writes a plain transaction via the ordinary create mutation — **not** an RPC; one insert needs no atomicity guarantee. Payload is derived wholly from the item:
 
   | Field | Value |
@@ -463,7 +465,7 @@ Global states convention: **loading** = skeletons (never layout shift), **empty*
 - **Loading:** card skeletons.
 - **Empty:** fresh account shows zeros + "Agrega tu primer movimiento" CTA.
 - **Validation:** market-value inline edit → integer ≥ 0.
-- **Errors:** per-card retry; interest hidden (not zero) when `total_invested_cents = 0`, with tooltip "Sin inversiones aún".
+- **Errors:** per-card retry; interest hidden (not zero) when the invested divisor is 0 — **Revised (D18): that divisor is now `SUM(investments.contributed_total_cents)`, not `total_invested_cents`** — with tooltip "Sin inversiones aún".
 
 ### 4.3 `/month` MonthView
 
@@ -507,8 +509,9 @@ Global states convention: **loading** = skeletons (never layout shift), **empty*
 ### 4.7 `/investments`
 
 - **Purpose:** manage vehicles, contributions, and market value.
-- **Components:** `InvestmentList` (name, contributed_total, market_value editable, interest per vehicle), `InvestmentForm` (add/rename/delete vehicle), `ContributionForm` (vehicle + amount + date), `ContributionHistory`.
+- **Components:** `InvestmentsSummaryCard` (headline totals, read-only), `InvestmentList` (name, contributed_total, market_value editable, interest per vehicle), `InvestmentForm` (add/rename/delete vehicle), `ContributionForm` (vehicle + amount + date), `ContributionHistory`.
 - **Flow:** add contribution → invested totals update (invalidate totals + investments); edit market value inline.
+- **`InvestmentsSummaryCard` (D18):** mirrors `InvestedSummaryCard` — sums `market_value_cents` **and** `contributed_total_cents` from the `investments` prop it is already given, and no longer calls `useTotals`. It takes no query of its own. The rule is the same on both pages: the summary is the sum of the vehicles listed below it.
 - **Validation:** vehicle name 1–80 unique; contribution amount > 0; market value ≥ 0.
 - **Errors:** name collision (409), amount invalid.
 
@@ -573,7 +576,7 @@ Shared primitives: <EntryForm>, <DebtSelect>, <MoneyInput>, <DatePicker>,
 | Key | Source | Invalidated by |
 |-----|--------|----------------|
 | `['totals']` | `totals` row | any transaction/contribution mutation, debt payment, market-value edit* |
-| `['investments']` | `investments` list | contribution mutations, vehicle CRUD, market-value edit |
+| `['investments']` | `investments` list | contribution mutations, vehicle CRUD, market-value edit. **Since D18 this key also backs the grand total invested** on both summary cards, so it is the one that must refetch for that figure to move. |
 | `['transactions', { year, month }]` | month range | transaction mutations, debt payment in that month |
 | `['transactions','year', year]` / `['yearSummary', year]` | aggregate | any transaction mutation in that year |
 | `['categories']` | categories | category CRUD, `delete_category` |
@@ -591,7 +594,7 @@ Shared primitives: <EntryForm>, <DebtSelect>, <MoneyInput>, <DatePicker>,
 |----------|-----------|
 | create/update/delete transaction | `['totals']`, `['transactions', period]`, `['yearSummary', year]`, `['recommendations', period]` |
 | `record_debt_payment` | `['totals']`, `['transactions', period]`, `['debts', *]`, `['debtPayments', debtId]`, `['yearSummary', year]`, `['recommendations', period]` |
-| create/update/delete contribution | `['totals']`, `['investments']`, `['contributions', {investmentId}]` — note `['investments']` now also carries the changed `market_value_cents` (0025) |
+| create/update/delete contribution | `['totals']`, `['investments']`, `['contributions', {investmentId}]` — note `['investments']` now also carries the changed `market_value_cents` (0025) **and, since D18, the `contributed_total_cents` the invested headline is summed from**. `['totals']` is retained: `total_invested_cents` is still trigger-maintained and no longer displayed (D18), so this invalidation now only keeps the cache honest — no card re-renders from it. |
 | edit market_value | `['investments']` |
 | category create/rename | `['categories']` |
 | `delete_category` | `['categories']`, `['transactions', *]`, `['recommendations', *]` |
@@ -640,6 +643,7 @@ Coverage gates: 80% overall, 90% new/modified, **95% financial-critical** (trigg
 ### 7.6 Investments (P5)
 - **pgTAP:** contribution insert/delete/update maintains `total_invested_cents` and per-vehicle `contributed_total_cents`, including moving between vehicles; contributions do NOT change `liquid_cash_cents`. **Since 0025 also:** `market_value_cents` moves by the same delta on every branch; **a contribution leaves `market − invested` unchanged** (the regression guard — a phantom loss equal to the contribution); a manual market-value edit survives and a later contribution adds on top of it; a delete after a hand-lowered value floors at 0 rather than going negative; a direct negative write is rejected (`23514`).
 - **E2E:** add contribution → invested total rises, liquid cash unchanged, market value rises, interest unchanged; edit market value → interest amount/% recompute; interest hidden when contributed = 0.
+- **Unit (RTL) — D18, UI-only so tests are the only thing pinning it:** `InvestedSummaryCard` renders *Total invertido* as the **sum of the vehicles' `contributed_total_cents`**, with no `useTotals` mock in scope. Mutating the component to sum any other column (or to read `totals.total_invested_cents`) MUST fail the test — verified by mutation, not just by the test passing. This is the guard against "restoring" the saved-total read on the strength of §7.7's original wording.
 
 ### 7.7 Recommendations (P6)
 - **pgTAP:** window overlap respected; description match covers, and is trimmed/case-folded but **not** substring ("Luces de navidad" must not cover "Luz"); an expense in the *same* category with a *different* description does NOT cover; a matching description in a *different* category DOES cover; an income cannot cover an expense sharing its description; **two items under one category stay independent** (the reason for D3); repeat modes (`monthly`/`yearly`/`none`); `none` paid once stays covered in later months and does not re-nag, while a `monthly` item is NOT covered by a previous month's payment; a later payment does not retroactively cover an earlier month; `covered_on` reports the covering date; day-granular expiry (ends **today** → still pending; ended yesterday → expired) anchored to `current_date` so the test cannot rot; a historical query does not expire an item inside its own window; blank description rejected (`23514`); `missing_recommendations` equals exactly the `is_due` set.
@@ -669,6 +673,7 @@ Coverage gates: 80% overall, 90% new/modified, **95% financial-critical** (trigg
 - **AC-Debt-payment:** *Given* an active debt with minimum M and R remaining months, *when* I record a payment ≥ M, *then* an expense of that amount is created, `liquidCash` decreases by it, remaining months = R−1 (or status `paid` at 0), and the month view labels the row with the debt; a payment < M creates the expense but does not decrement.
 - **AC-Debt-duplicate:** *Given* a covering payment already this month, *when* I open the payment dialog, *then* a warning is shown but the payment is still allowed.
 - **AC-Investment:** *Given* liquid cash L, *when* I add a contribution of A, *then* `totalInvested`, the vehicle's contributed total **and its market value** increase by A, `liquidCash` stays L, and **`totalInterestMoney` is unchanged** (a contribution is not a loss — D1). Editing market value updates `totalInterestMoney` = totalMarketValue − totalInvested and its %.
+- **AC-Invested-total-source (D18):** *Given* two vehicles with contributed totals of $2,000 and $1,000, *when* I open the dashboard, *then* *Total invertido* reads **$3,000.00** — the sum of the *Aportado* rows shown beneath it — **regardless of what `totals.total_invested_cents` holds**. The headline and the vehicle rows can never disagree, because they are the same numbers.
 - **AC-Interest-zero:** *Given* zero contributions, *when* I view the dashboard, *then* interest % is not shown (no divide-by-zero) and a tooltip explains why.
 - **AC-Income-no-category:** *Given* the entry form, *when* I select Ingreso, *then* the category field disappears and the saved row has `category_id = NULL`; the month view's income table has no category column; an expense still requires a category (D11).
 - **AC-Recommendation:** *Given* a recommended item described "Agua" active this month with no matching transaction, *when* I open the month, *then* it is recommended; after I add a transaction described "Agua" (any category, any case/spacing) it disappears. A second item "Luz" under the same category is unaffected (D3).
