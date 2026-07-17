@@ -42,37 +42,13 @@ describe('RecommendedForm create', () => {
     );
   });
 
-  it('defaults to repeating every month', async () => {
+  it('defaults to a one-off, with no window end and a plain date field', async () => {
     const user = userEvent.setup();
     render(<RecommendedForm open onOpenChange={vi.fn()} categories={categories} />);
 
-    await user.type(screen.getByLabelText('Descripción'), 'Renta');
-    await user.click(screen.getByRole('button', { name: 'Crear' }));
-
-    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1));
-    expect(createMutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ repeat_mode: 'monthly' }),
-    );
-  });
-
-  it('hides the window end and submits a null one for a one-off', async () => {
-    const user = userEvent.setup();
-    render(<RecommendedForm open onOpenChange={vi.fn()} categories={categories} />);
-
-    // A bounded window is visible while the item repeats...
-    expect(screen.getByLabelText('Fin de ventana (opcional)')).toBeInTheDocument();
-    expect(screen.getByLabelText('Inicio de ventana')).toBeInTheDocument();
-
-    await user.click(screen.getByLabelText('Repetir'));
-    await user.click(await screen.findByRole('option', { name: 'Una vez' }));
-
-    // ...and gone once it does not: a one-off has no range, just a date.
-    await waitFor(() =>
-      expect(
-        screen.queryByLabelText('Fin de ventana (opcional)'),
-      ).not.toBeInTheDocument(),
-    );
+    // A one-off has no range: just a date, and no end-of-window field.
     expect(screen.getByLabelText('Fecha')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Fin de ventana (opcional)')).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Descripción'), 'Trámite');
     await user.click(screen.getByRole('button', { name: 'Crear' }));
@@ -80,6 +56,27 @@ describe('RecommendedForm create', () => {
     await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1));
     expect(createMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ repeat_mode: 'none', window_end: null }),
+    );
+  });
+
+  it('reveals the window end when switched to a repeating mode', async () => {
+    const user = userEvent.setup();
+    render(<RecommendedForm open onOpenChange={vi.fn()} categories={categories} />);
+
+    await user.click(screen.getByLabelText('Repetir'));
+    await user.click(await screen.findByRole('option', { name: 'Cada mes' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Fin de ventana (opcional)')).toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText('Inicio de ventana')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Descripción'), 'Renta');
+    await user.click(screen.getByRole('button', { name: 'Crear' }));
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1));
+    expect(createMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ repeat_mode: 'monthly' }),
     );
   });
 
@@ -114,6 +111,12 @@ describe('RecommendedForm create', () => {
   it('rejects a window end before the window start', async () => {
     const user = userEvent.setup();
     render(<RecommendedForm open onOpenChange={vi.fn()} categories={categories} />);
+
+    // The default is a one-off, which has no window end — switch to a repeating
+    // mode so the field exists.
+    await user.click(screen.getByLabelText('Repetir'));
+    await user.click(await screen.findByRole('option', { name: 'Cada mes' }));
+    await screen.findByLabelText('Fin de ventana (opcional)');
 
     // Date inputs are set via change events (jsdom date typing is unreliable).
     fireEvent.change(screen.getByLabelText('Inicio de ventana'), {

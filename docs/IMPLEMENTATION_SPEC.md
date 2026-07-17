@@ -446,8 +446,20 @@ Global states convention: **loading** = skeletons (never layout shift), **empty*
 ### 4.2 `/` Dashboard
 
 - **Purpose:** at-a-glance financial position.
-- **Components:** `LiquidCashCard`, `InvestedSummaryCard` (per-vehicle contributed + market value + interest amount/%), `PendingDebtsList` (current month), `QuickAddButton` (opens `EntryForm` modal), `MonthPicker` (drives pending debts + recommendation banner), `RecommendationBanner`.
+- **Components:** `LiquidCashCard`, `InvestedSummaryCard` (market value headline + total invested + interest amount/%, per-vehicle rows), `PendingDebtsList` (current month), `QuickAddButton` (opens `EntryForm` modal), `MonthPicker` (drives pending debts + recommendation banner), `RecommendationBanner`.
 - **Flow:** loads `totals` + `investments` + pending debts + `missing_recommendations(currentMonth, year)`.
+- **`RecommendationBanner` → "Completada" (FR-27, D16):** writes a plain transaction via the ordinary create mutation — **not** an RPC; one insert needs no atomicity guarantee. Payload is derived wholly from the item:
+
+  | Field | Value |
+  |-------|-------|
+  | `type` | the item's |
+  | `amount_cents` | `expected_amount_cents` |
+  | `tx_date` | today (MX) |
+  | `description` | the item's, **verbatim** — it is the match key, so this is what clears the item (D3) |
+  | `category_id` | income → `null`; expense → the item's category, else **Otros** (an expense MUST have one, D11) |
+  | `recurrence` | `variable` when `repeat_mode='none'`, else `recurrent` |
+
+  **MUST NOT invent an amount.** When `expected_amount_cents IS NULL`, open `EntryForm` with a `prefill` (type, description, resolved category) so the user supplies the amount. The create mutation invalidates `['recommendations']`, so the banner row disappears on success.
 - **Loading:** card skeletons.
 - **Empty:** fresh account shows zeros + "Agrega tu primer movimiento" CTA.
 - **Validation:** market-value inline edit → integer ≥ 0.
@@ -456,8 +468,14 @@ Global states convention: **loading** = skeletons (never layout shift), **empty*
 ### 4.3 `/month` MonthView
 
 - **Purpose:** monthly expenses & incomes in **separate tables** + period totals.
-- **Components:** `MonthPicker`, `PeriodTotalsBar` (income, expense, balance, invested-this-month), `TransactionTable` (income), `TransactionTable` (expense) with `recurrence` badge and, for debt rows, a `DebtBadge` naming the debt (FR-12), row actions (edit/delete), `RecurrenceFilter`.
-- **Flow:** pick month → fetch transactions in `[monthStart, monthEnd]`; edit/delete inline (delete confirms).
+- **Components:** `MonthPicker`, `PeriodTotalsBar` (income, expense, balance, invested-this-month), `TransactionTable` (income), `TransactionTable` (expense) with `recurrence` badge and, for debt rows, a `DebtBadge` naming the debt (FR-12), row actions (edit/delete), `RecurrenceFilter`, `CategoryFilter`.
+- **Flow:** pick month → fetch transactions in `[monthStart, monthEnd]`; edit/delete inline (delete confirms). Both filters are applied **client-side** over the fetched rows — no extra query, no new query key; personal scale makes a round-trip pointless.
+- **`CategoryFilter` (FR-11, D17):** `'all'` (the `ALL_CATEGORIES` sentinel — Radix forbids an empty item value) or a category id. Selecting a category:
+  - narrows the **expense** table to that `category_id`;
+  - **hides the income table** — income has no category (D11), so it can never match;
+  - passes `expensesOnly` to `PeriodTotalsBar`, which then renders only *Gastos (categoría)* and *Invertido*, dropping *Ingresos* and *Balance*.
+
+  Dropping those two tiles is deliberate, not laziness: a `$0` income beside a filtered expense total would make *Balance* read as full-income − filtered-expense — a number that means nothing — and would break **AC-Month/Year views** (*totals equal the sum of displayed rows*). *Invertido* survives because it is an independent month aggregate that no table filter touches. A `role="status"` line states the exclusion in plain Spanish.
 - **Loading:** table skeleton rows.
 - **Empty:** per table "Sin movimientos este mes".
 - **Validation:** edit reuses `EntryForm` schema.
@@ -501,7 +519,7 @@ Global states convention: **loading** = skeletons (never layout shift), **empty*
 - **Flow:** reads `recommendation_status(currentMonth, currentYear)` — "this month" is literal; the page has no period picker. Splits on `is_expired || is_covered` → past, else pending (D15). `RecommendedList` takes the **status rows**, not bare items, so it can render Estado.
 - **Estado column:** `Registrada el <covered_on>` when covered (coverage wins over expiry — *when* it was registered is more useful than that the window has since closed), else `Vencida` when expired, else `Pendiente`.
 - **Window/repeat labels (FR-24):** the day is dropped where matching ignores it — `Cada mes` → "Desde jun 2026"; `Cada año` → "junio · 2026 – 2027" (month is the anchor); `Una vez` → "14 jun 2026" (full date; the day is real). Lives in `domain/recommendations.ts` (`repeatLabel`, `windowLabel`) so it is unit-testable.
-- **Form behaviour:** `repeat_mode='none'` hides the window-end field, relabels the start to "Fecha", and submits `window_end: null`. Category is hidden for income (D11) and labelled "sólo para organizar" for expenses, since it does not drive matching (D3).
+- **Form behaviour:** a new item **defaults to `repeat_mode='none'`** (a one-off). This is a *form* default only — `recommended_items.repeat_mode` keeps its `monthly` column default, which is the backward-compatible value for rows written before the column existed and for any writer that omits it. `repeat_mode='none'` hides the window-end field, relabels the start to "Fecha", and submits `window_end: null`. Category is hidden for income (D11) and labelled "sólo para organizar" for expenses, since it does not drive matching (D3).
 - **Validation:** description **required** (non-blank) for both types — it is the match key; window_end ≥ window_start (skipped when `none`, whose end is ignored); expected amount > 0 if present.
 
 ### 4.9 `EntryForm` (shared modal component)
@@ -509,6 +527,8 @@ Global states convention: **loading** = skeletons (never layout shift), **empty*
 - **Purpose:** create/edit a transaction.
 - **Fields:** type (default expense), amount (pesos input → centavos), tx_date (default today), description, category (dropdown, **expenses only**), recurrence (default variable). When category resolves to **debt kind**: replace amount with a `DebtSelect`, prefill amount = minimum payment, and on submit call `record_debt_payment` instead of a plain insert; show duplicate-payment warning.
 - **Income (D11):** selecting `income` hides the category field, clears any value already chosen, and submits `category_id: null`. Clearing on switch is required, not cosmetic — a retained value would violate `transactions_category_by_type`.
+- **`prefill?: EntryPrefill` (new-entry only, ignored on edit):** seeds `type` / `amountPesos` / `description` / `category_id`. Used by the banner when a recommendation has no expected amount, so the user supplies only the unknown field.
+- **"Desde una recomendación…" (FR-28, D16):** a sentinel row at the top of the category dropdown, shown only when creating and only when pending expense items exist. It mirrors the debt branch, but a recommendation is **not** a category — so unlike the debt flow (which selects the real `debt` category) the sentinel MUST NOT reach `category_id`, which is a uuid. Hold it in local state instead; picking a pending item copies `description` and `expected_amount_cents`, sets `category_id` to that item's own category (Otros when it has none), then clears the sentinel so the dropdown shows the category that will actually be saved. Reachable for expenses only — the category field is hidden for income. Reads `useMissingRecommendations(currentMonth, year)`, i.e. exactly the due items, filtered to `type='expense'`.
 - **Validation (Zod):** amount > 0 integer centavos after conversion; date valid; description ≤ 280; category **required for expense, forbidden for income** (mirrors the CHECK on both halves, so the form cannot submit a payload the DB will reject).
 - **States:** submitting spinner; success closes modal + toast + invalidations (§6); error inline.
 
@@ -528,8 +548,9 @@ Global states convention: **loading** = skeletons (never layout shift), **empty*
     │   │   └── <QuickAddButton> → <EntryForm/>
     │   ├── <MonthView>
     │   │   ├── <MonthPicker>
-    │   │   ├── <PeriodTotalsBar>
-    │   │   ├── <TransactionTable kind="income">
+    │   │   ├── <PeriodTotalsBar>          # expensesOnly while a category is picked
+    │   │   ├── <CategoryFilter> + <RecurrenceFilter>
+    │   │   ├── <TransactionTable kind="income">   # hidden while a category is picked
     │   │   └── <TransactionTable kind="expense"> (DebtBadge, RecurrenceBadge)
     │   ├── <YearView> → <YearPicker> + <YearSummaryTable>
     │   ├── <Categories> → <CategoryList> + <CategoryForm> + <ConfirmDialog>
@@ -623,7 +644,12 @@ Coverage gates: 80% overall, 90% new/modified, **95% financial-critical** (trigg
 ### 7.7 Recommendations (P6)
 - **pgTAP:** window overlap respected; description match covers, and is trimmed/case-folded but **not** substring ("Luces de navidad" must not cover "Luz"); an expense in the *same* category with a *different* description does NOT cover; a matching description in a *different* category DOES cover; an income cannot cover an expense sharing its description; **two items under one category stay independent** (the reason for D3); repeat modes (`monthly`/`yearly`/`none`); `none` paid once stays covered in later months and does not re-nag, while a `monthly` item is NOT covered by a previous month's payment; a later payment does not retroactively cover an earlier month; `covered_on` reports the covering date; day-granular expiry (ends **today** → still pending; ended yesterday → expired) anchored to `current_date` so the test cannot rot; a historical query does not expire an item inside its own window; blank description rejected (`23514`); `missing_recommendations` equals exactly the `is_due` set.
 - **The trap, pinned explicitly:** a `yearly` item outside its anniversary month must report `is_due=false, is_covered=false, is_expired=false` — i.e. it stays **pending**, not past. This is the assertion that stops anyone "simplifying" the split back to inferring coverage from absence.
-- **E2E:** banner appears when expected item missing; disappears after adding a matching transaction.
+- **Unit (RTL), the UI-only behaviours** — these have no migration, so tests are the only thing pinning them:
+  - *Completada* builds the payload from the item (description verbatim, expected amount, today, `recurrent` vs `variable` by repeat mode); a category-less expense item resolves to **Otros**; an income item sends `category_id: null`; **an item with no expected amount creates nothing and opens the form** (the "invents nothing" guard).
+  - The entry form's recommendation sentinel fills description/amount and resolves to the item's **own** category — the sentinel must never appear in a submitted payload; the option is absent when nothing is pending.
+  - `PeriodTotalsBar` drops the *Ingresos*/*Balance* tiles under `expensesOnly` and keeps *Invertido* (D17).
+  - `RecommendedForm` defaults to a one-off: no window-end field, submits `repeat_mode:'none', window_end:null`; switching to a repeating mode reveals the field.
+- **E2E:** banner appears when expected item missing; disappears after adding a matching transaction, and after pressing Completada.
 
 ### 7.8 Auth & RLS (cross-cutting)
 - **Integration:** unauthenticated calls 401; second user sees zero rows across all tables; RPCs run under caller RLS.
@@ -648,6 +674,9 @@ Coverage gates: 80% overall, 90% new/modified, **95% financial-critical** (trigg
 - **AC-Recommendation:** *Given* a recommended item described "Agua" active this month with no matching transaction, *when* I open the month, *then* it is recommended; after I add a transaction described "Agua" (any category, any case/spacing) it disappears. A second item "Luz" under the same category is unaffected (D3).
 - **AC-Recommendation-repeat:** *Given* a `yearly` item anchored to March, *when* I view July, *then* it is neither due nor covered nor expired and stays in **Pendientes** (D15). *Given* a `none` item paid in Aug 2025, *when* I view any later month, *then* it reads "Registrada el 14 ago 2025" in the past table and the banner does not re-nag (D13).
 - **AC-Recommendation-expiry:** *Given* an item whose window ends today, *when* it is uncovered, *then* it is still **Pendiente**; the day after, it is **Vencida** (D14).
+- **AC-Recommendation-complete:** *Given* a pending item with an expected amount, *when* I press **Completada**, *then* a movement is created with that amount, the item's description, today's date and the item's own category (Otros when it has none), `liquidCash` moves by it, and the banner row disappears. *Given* an item with **no** expected amount, *when* I press Completada, *then* **no movement is created** and the prefilled form opens for the amount (D16).
+- **AC-Entry-from-recommendation:** *Given* a pending expense item, *when* I choose "Desde una recomendación…" and pick it, *then* the description and amount are filled and the category becomes the item's own — never the sentinel (FR-28).
+- **AC-Category-filter:** *Given* a month with income and expenses, *when* I filter by a category, *then* only that category's expenses are listed, the income table is hidden, and the totals bar shows only *Gastos (categoría)* and *Invertido* — never a `$0` income or a balance (D17).
 - **AC-Month/Year views:** period totals equal the sum of displayed rows; year view shows 12 rows zero-filled.
 - **AC-Auth:** only the admin-provisioned user can sign in; there is no reset/signup UI; RLS blocks any cross-user read.
 - **AC-Reconciliation:** the reconciliation check reports zero drift after any sequence of operations in the test suite.
@@ -705,7 +734,7 @@ RLS on every table, always keyed to `auth.uid()`. RPCs `SECURITY INVOKER`. Never
 | `record_debt_payment` atomicity | Partial failure desyncs cash vs. debt | Single RPC/transaction; rollback test with forced error. |
 | Seeding order (`totals` before first tx) | Missing totals row → trigger no-op/error | `handle_new_user` seeds totals first; migration order pinned; test fresh-user provisioning. |
 | Money unit mixups (pesos vs centavos) | Off-by-100 bugs | Branded `Centavos` type; conversion only in `MoneyInput`/`formatMXN`; property tests. |
-| Timezone month boundaries & `due_day` clamp | Off-by-one at edges | `DATE`-only storage; fixed America/Mexico_City; tests for day 29–31 and month edges. |
+| Timezone month boundaries & `due_day` clamp | Off-by-one at edges | `DATE`-only storage; fixed America/Mexico_City; tests for day 29–31 and month edges. **Never compare against `current_date`/`now()::date`** — the server runs UTC and MX is UTC-6, so they differ from 18:00 MX onward. Code derives `(now() at time zone 'America/Mexico_City')::date`; pgTAP uses the `pg_temp.mx_today()` helper in `09_missing_recommendations.test.sql`. Mixing the two produced a test that passed each morning and failed each evening. |
 | Divide-by-zero in interest % | NaN/Infinity in UI | Guard when `total_invested_cents = 0`; hide %, show tooltip. |
 | RLS gaps | Cross-user leakage (future multi-user) | Second-user test across every table in CI. |
 | Direct debt-category insert bypassing RPC | Debt state desync | Constraint trigger + UI routes debt entries to RPC; test that a raw insert with debt_id+non-debt category is rejected. |

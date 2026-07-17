@@ -24,24 +24,41 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { todayISOMX } from '@/domain/date';
+import { currentMonthYearMX, todayISOMX } from '@/domain/date';
 import { hasCoveringPaymentInMonth } from '@/domain/debts';
-import { toCentavos } from '@/domain/money';
+import { formatMXN, toCentavos } from '@/domain/money';
 import { entryFormSchema, type EntryFormInput } from '@/domain/schemas';
 import type { Transaction } from '@/domain/types';
 import { useCategories } from '@/hooks/useCategories';
 import { useDebtPayments, useDebts, useRecordDebtPayment } from '@/hooks/useDebts';
+import { useMissingRecommendations } from '@/hooks/useRecommendations';
 import { useCreateTransaction, useUpdateTransaction } from '@/hooks/useTransactions';
 import { toast } from '@/store/toast';
+
+// Radix Select forbids an empty-string value, so the "fill from a recommendation"
+// affordance uses a named sentinel. It is never stored — picking a recommendation
+// resolves it to that item's real category.
+const FROM_RECOMMENDATION = '__from_recommendation__';
+
+/** Seed values for a *new* entry (e.g. completing a recommendation). Ignored on edit. */
+export interface EntryPrefill {
+  type?: Transaction['type'];
+  amountPesos?: number;
+  description?: string;
+  category_id?: string;
+}
 
 interface EntryFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** When provided, the form edits this transaction; otherwise it creates one. */
   transaction?: Transaction;
+  /** Seeds a new entry. Used when a recommendation has no expected amount, so the
+   *  user only has to supply the one field we cannot know. */
+  prefill?: EntryPrefill;
 }
 
-function toDefaults(transaction?: Transaction): EntryFormInput {
+function toDefaults(transaction?: Transaction, prefill?: EntryPrefill): EntryFormInput {
   if (transaction) {
     return {
       type: transaction.type,
@@ -54,11 +71,11 @@ function toDefaults(transaction?: Transaction): EntryFormInput {
     };
   }
   return {
-    type: 'expense',
-    amountPesos: Number.NaN,
+    type: prefill?.type ?? 'expense',
+    amountPesos: prefill?.amountPesos ?? Number.NaN,
     tx_date: todayISOMX(),
-    description: '',
-    category_id: '',
+    description: prefill?.description ?? '',
+    category_id: prefill?.category_id ?? '',
     recurrence: 'variable',
   };
 }
@@ -71,16 +88,27 @@ function toDefaults(transaction?: Transaction): EntryFormInput {
  * insert (§3.2). Debt-payment transactions have no plain-edit path, so the debt
  * kind is excluded from the dropdown while editing.
  */
-export function EntryForm({ open, onOpenChange, transaction }: EntryFormProps) {
+export function EntryForm({
+  open,
+  onOpenChange,
+  transaction,
+  prefill,
+}: EntryFormProps) {
   const isEdit = !!transaction;
   const categoriesQuery = useCategories();
   const debtsQuery = useDebts('active');
   const createMutation = useCreateTransaction();
   const updateMutation = useUpdateTransaction();
   const recordPaymentMutation = useRecordDebtPayment();
+  const { year: recYear, month: recMonth } = currentMonthYearMX();
+  const pendingRecsQuery = useMissingRecommendations(recYear, recMonth);
 
   const [selectedDebtId, setSelectedDebtId] = useState('');
   const [debtError, setDebtError] = useState(false);
+  // True while the category Select holds the "from a recommendation" sentinel. It
+  // is not a real category, so it cannot live in `category_id` (a uuid) — picking a
+  // recommendation resolves it to that item's own category and clears this.
+  const [fromRecommendation, setFromRecommendation] = useState(false);
 
   const {
     register,
@@ -93,20 +121,26 @@ export function EntryForm({ open, onOpenChange, transaction }: EntryFormProps) {
     formState: { errors, isSubmitting },
   } = useForm<EntryFormInput>({
     resolver: zodResolver(entryFormSchema),
-    defaultValues: toDefaults(transaction),
+    defaultValues: toDefaults(transaction, prefill),
   });
 
   // Reset field values whenever the modal opens (create vs. a specific edit).
   useEffect(() => {
     if (open) {
-      reset(toDefaults(transaction));
+      reset(toDefaults(transaction, prefill));
       setSelectedDebtId('');
       setDebtError(false);
+      setFromRecommendation(false);
     }
-  }, [open, transaction, reset]);
+  }, [open, transaction, prefill, reset]);
 
   const categories = categoriesQuery.data ?? [];
   const activeDebts = debtsQuery.data ?? [];
+  // Only expense recommendations are reachable here: the category field — which
+  // hosts the sentinel — is hidden for income (D11).
+  const pendingExpenseRecs = (pendingRecsQuery.data ?? []).filter(
+    (r) => r.type === 'expense',
+  );
 
   // The debt kind is selectable only when creating (§4.9).
   const selectableCategories = categories.filter((c) => !isEdit || c.kind !== 'debt');
@@ -137,6 +171,25 @@ export function EntryForm({ open, onOpenChange, transaction }: EntryFormProps) {
     setDebtError(false);
     const debt = activeDebts.find((d) => d.id === debtId);
     if (debt) setValue('amountPesos', debt.minimum_payment_cents / 100);
+  }
+
+  /**
+   * Resolve a chosen recommendation into a plain expense: copy its description (the
+   * match key, so the saved row clears the item) and expected amount, and adopt its
+   * own category — falling back to Otros, since an expense MUST carry one (D11) and
+   * a recommendation's category is optional. The sentinel then clears, so the
+   * category Select shows the real category that will be saved.
+   */
+  function handleRecommendationChange(recId: string) {
+    const rec = pendingExpenseRecs.find((r) => r.id === recId);
+    if (!rec) return;
+    const otrosId = categories.find((c) => c.kind === 'otros')?.id ?? '';
+    setValue('category_id', rec.category_id ?? otrosId);
+    setValue('description', rec.description);
+    if (rec.expected_amount_cents !== null) {
+      setValue('amountPesos', rec.expected_amount_cents / 100);
+    }
+    setFromRecommendation(false);
   }
 
   async function onSubmit(values: EntryFormInput) {
@@ -266,14 +319,33 @@ export function EntryForm({ open, onOpenChange, transaction }: EntryFormProps) {
                 <Select
                   // Omit `value` entirely (not undefined) when unselected so the
                   // placeholder shows — exactOptionalPropertyTypes forbids value={undefined}.
-                  {...(field.value ? { value: field.value } : {})}
-                  onValueChange={field.onChange}
+                  {...(fromRecommendation
+                    ? { value: FROM_RECOMMENDATION }
+                    : field.value
+                      ? { value: field.value }
+                      : {})}
+                  onValueChange={(v) => {
+                    if (v === FROM_RECOMMENDATION) {
+                      setFromRecommendation(true);
+                      field.onChange('');
+                      return;
+                    }
+                    setFromRecommendation(false);
+                    field.onChange(v);
+                  }}
                   disabled={categoriesQuery.isPending}
                 >
                   <SelectTrigger id="category_id" aria-invalid={!!errors.category_id}>
                     <SelectValue placeholder="Selecciona una categoría" />
                   </SelectTrigger>
                   <SelectContent>
+                    {/* Not a category — an affordance for filling the form from a
+                        pending recommendation, mirroring the debt branch. */}
+                    {!isEdit && pendingExpenseRecs.length > 0 ? (
+                      <SelectItem value={FROM_RECOMMENDATION}>
+                        Desde una recomendación…
+                      </SelectItem>
+                    ) : null}
                     {selectableCategories.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.name}
@@ -287,6 +359,31 @@ export function EntryForm({ open, onOpenChange, transaction }: EntryFormProps) {
               <p className="text-sm text-destructive">{errors.category_id.message}</p>
             ) : null}
           </div>
+          ) : null}
+
+          {/* Recommendation branch: pick a pending item to fill the form from. */}
+          {showCategory && fromRecommendation ? (
+            <div className="space-y-2">
+              <Label htmlFor="recommendation_id">Recomendación pendiente</Label>
+              <Select onValueChange={handleRecommendationChange}>
+                <SelectTrigger id="recommendation_id">
+                  <SelectValue placeholder="Selecciona una recomendación" />
+                </SelectTrigger>
+                <SelectContent>
+                  {pendingExpenseRecs.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.description}
+                      {r.expected_amount_cents !== null
+                        ? ` · ${formatMXN(r.expected_amount_cents)}`
+                        : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Copia su descripción y monto, y toma su categoría (o Otros si no tiene).
+              </p>
+            </div>
           ) : null}
 
           {/* Debt branch: pick which debt this payment applies to (FR-6, §4.9). */}

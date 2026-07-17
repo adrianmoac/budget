@@ -12,6 +12,18 @@ select plan(36);
 insert into auth.users (id, email)
   values ('d0000000-0000-0000-0000-000000000001', 'rec@test.local');
 
+-- "Today" for the day-granular expiry tests MUST be the America/Mexico_City date —
+-- the same clock recommendation_status uses (0028) — and NOT `current_date`, which
+-- is the server's date in its own timezone. The test container runs UTC, so from
+-- 18:00 MX onward current_date is a day AHEAD of the MX date; anchoring fixtures to
+-- it made these tests pass all morning and fail every evening. A flaky test is a
+-- bug (§7 CI gates), and this is exactly the timezone-boundary risk the
+-- architecture calls out. Created before dropping to `authenticated`, which has no
+-- CREATE on public.
+create function pg_temp.mx_today() returns date language sql stable as $$
+  select (now() at time zone 'America/Mexico_City')::date
+$$;
+
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"d0000000-0000-0000-0000-000000000001"}', true);
 
@@ -211,22 +223,28 @@ select is(
      where item->>'description' = 'Renta'),
   '2026-05-03'::date, 'covered_on reports the covering date for a monthly item');
 
--- ---- Day-granular expiry (0028), anchored to today so the test cannot rot ----
+-- ---- Day-granular expiry (0028), anchored to the MX date so the test cannot rot ----
+-- Windows start at the beginning of the current MX month, so the queried period is
+-- always the current one and `v_ref` in the RPC resolves to today (not month-start).
 insert into recommended_items (type, category_id, description, window_start, window_end, repeat_mode)
 values
   ('expense', (select id from categories where kind='normal' and name='Suscripciones'),
-   'Vence hoy', date_trunc('month', current_date)::date, current_date, 'monthly'),
+   'Vence hoy',
+   date_trunc('month', pg_temp.mx_today())::date, pg_temp.mx_today(), 'monthly'),
   ('expense', (select id from categories where kind='normal' and name='Suscripciones'),
-   'Venció ayer', date_trunc('month', current_date)::date, current_date - 1, 'monthly');
+   'Venció ayer',
+   date_trunc('month', pg_temp.mx_today())::date, pg_temp.mx_today() - 1, 'monthly');
 
 select is(
   (select count(*)::int from recommendation_status(
-       extract(month from current_date)::int, extract(year from current_date)::int)
+       extract(month from pg_temp.mx_today())::int,
+       extract(year  from pg_temp.mx_today())::int)
      where item->>'description' = 'Vence hoy' and not is_expired and is_due),
   1, 'an item whose window ends TODAY is still pending, not expired');
 select is(
   (select count(*)::int from recommendation_status(
-       extract(month from current_date)::int, extract(year from current_date)::int)
+       extract(month from pg_temp.mx_today())::int,
+       extract(year  from pg_temp.mx_today())::int)
      where item->>'description' = 'Venció ayer' and is_expired and not is_due),
   1, 'an item whose window ended yesterday expires mid-month, not at month end');
 

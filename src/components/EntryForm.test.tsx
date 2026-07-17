@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EntryForm } from './EntryForm';
-import type { Transaction } from '@/domain/types';
+import type { RecommendedItem, Transaction } from '@/domain/types';
 
 const CAT_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -29,6 +29,14 @@ vi.mock('@/hooks/useDebts', () => ({
   useRecordDebtPayment: () => ({ mutateAsync: vi.fn().mockResolvedValue({}) }),
 }));
 
+// The form offers a "from a recommendation" affordance, so it reads the pending list.
+const missingRecommendations = vi.fn<() => { data: RecommendedItem[] }>(() => ({
+  data: [],
+}));
+vi.mock('@/hooks/useRecommendations', () => ({
+  useMissingRecommendations: () => missingRecommendations(),
+}));
+
 const existingTransaction: Transaction = {
   id: 'tx-1',
   user_id: 'u',
@@ -46,6 +54,7 @@ const existingTransaction: Transaction = {
 beforeEach(() => {
   createMutateAsync.mockClear();
   updateMutateAsync.mockClear();
+  missingRecommendations.mockReturnValue({ data: [] });
 });
 
 describe('EntryForm validation', () => {
@@ -105,6 +114,73 @@ describe('EntryForm income has no category', () => {
       expect(screen.getByLabelText('Categoría')).toHaveAttribute('aria-invalid', 'true'),
     );
     expect(createMutateAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe('EntryForm from a recommendation', () => {
+  const recommendation: RecommendedItem = {
+    id: 'rec-1',
+    user_id: 'u',
+    type: 'expense',
+    category_id: CAT_ID,
+    description: 'Agua',
+    expected_amount_cents: 18_000,
+    window_start: '2026-01-01',
+    window_end: null,
+    repeat_mode: 'monthly',
+    created_at: '',
+  };
+
+  it('fills description, amount and the item\'s own category from the picked item', async () => {
+    missingRecommendations.mockReturnValue({ data: [recommendation] });
+    const user = userEvent.setup();
+    render(<EntryForm open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByLabelText('Categoría'));
+    await user.click(await screen.findByRole('option', { name: /Desde una recomendación/ }));
+
+    await user.click(await screen.findByLabelText('Recomendación pendiente'));
+    await user.click(await screen.findByRole('option', { name: /Agua/ }));
+
+    await user.click(screen.getByRole('button', { name: 'Agregar' }));
+
+    await waitFor(() => expect(createMutateAsync).toHaveBeenCalledTimes(1));
+    // The category resolves to the recommendation's own — the sentinel is never saved.
+    expect(createMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'expense',
+        description: 'Agua',
+        amount_cents: 18_000,
+        category_id: CAT_ID,
+      }),
+    );
+  });
+
+  it('offers no recommendation option when none are pending', async () => {
+    missingRecommendations.mockReturnValue({ data: [] });
+    const user = userEvent.setup();
+    render(<EntryForm open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByLabelText('Categoría'));
+
+    expect(
+      screen.queryByRole('option', { name: /Desde una recomendación/ }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe('EntryForm prefill', () => {
+  it('seeds a new entry from the given values', () => {
+    missingRecommendations.mockReturnValue({ data: [] });
+    render(
+      <EntryForm
+        open
+        onOpenChange={vi.fn()}
+        prefill={{ type: 'expense', description: 'Luz', category_id: CAT_ID }}
+      />,
+    );
+
+    expect(screen.getByLabelText('Descripción')).toHaveValue('Luz');
   });
 });
 

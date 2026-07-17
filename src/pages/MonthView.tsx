@@ -4,6 +4,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EntryForm } from '@/components/EntryForm';
 import { MonthPicker } from '@/components/MonthPicker';
 import { QuickAddButton } from '@/components/QuickAddButton';
+import { CategoryFilter } from '@/components/month/CategoryFilter';
 import { PeriodTotalsBar } from '@/components/month/PeriodTotalsBar';
 import { RecurrenceFilter } from '@/components/month/RecurrenceFilter';
 import { TransactionTable } from '@/components/month/TransactionTable';
@@ -14,13 +15,14 @@ import { useDebts } from '@/hooks/useDebts';
 import { useInvestedThisMonth } from '@/hooks/useInvestedThisMonth';
 import { useDeleteTransaction, useMonthTransactions } from '@/hooks/useTransactions';
 import { toast } from '@/store/toast';
-import { useUiStore } from '@/store/ui';
+import { ALL_CATEGORIES, useUiStore } from '@/store/ui';
 
 /** Monthly expenses & incomes in separate tables + period totals (§4.3). */
 export function MonthView() {
   const year = useUiStore((s) => s.selectedYear);
   const month = useUiStore((s) => s.selectedMonth);
   const recurrenceFilter = useUiStore((s) => s.recurrenceFilter);
+  const categoryFilter = useUiStore((s) => s.categoryFilter);
 
   const txQuery = useMonthTransactions(year, month);
   const categoriesQuery = useCategories();
@@ -43,19 +45,26 @@ export function MonthView() {
     return map;
   }, [debtsQuery.data]);
 
+  // A category filter is expenses-only: income has no category (D11), so while one
+  // is active the income table is hidden rather than shown unfiltered beside a
+  // filtered expense list (which would make "balance" meaningless).
+  const byCategory = categoryFilter !== ALL_CATEGORIES;
+
   const { income, expense, incomeCents, expenseCents } = useMemo(() => {
     const rows = (txQuery.data ?? []).filter(
       (t) => recurrenceFilter === 'all' || t.recurrence === recurrenceFilter,
     );
-    const inc = rows.filter((t) => t.type === 'income');
-    const exp = rows.filter((t) => t.type === 'expense');
+    const inc = byCategory ? [] : rows.filter((t) => t.type === 'income');
+    const exp = rows.filter(
+      (t) => t.type === 'expense' && (!byCategory || t.category_id === categoryFilter),
+    );
     return {
       income: inc,
       expense: exp,
       incomeCents: inc.reduce((s, t) => s + t.amount_cents, 0),
       expenseCents: exp.reduce((s, t) => s + t.amount_cents, 0),
     };
-  }, [txQuery.data, recurrenceFilter]);
+  }, [txQuery.data, recurrenceFilter, categoryFilter, byCategory]);
 
   function confirmDelete() {
     if (!deleting) return;
@@ -93,21 +102,35 @@ export function MonthView() {
             balanceCents={incomeCents - expenseCents}
             investedCents={investedQuery.data ?? 0}
             loading={txQuery.isPending || investedQuery.isPending}
+            expensesOnly={byCategory}
           />
 
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <CategoryFilter />
             <RecurrenceFilter />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <TransactionTable
-              kind="income"
-              transactions={income}
-              categoryNameById={categoryNameById}
-              debtNameById={debtNameById}
-              onEdit={setEditing}
-              onDelete={setDeleting}
-            />
+          {byCategory ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              Mostrando sólo gastos de{' '}
+              <span className="font-medium">
+                {categoryNameById.get(categoryFilter) ?? 'la categoría'}
+              </span>
+              . Los ingresos no tienen categoría, así que quedan fuera de este filtro.
+            </p>
+          ) : null}
+
+          <div className={byCategory ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-2'}>
+            {byCategory ? null : (
+              <TransactionTable
+                kind="income"
+                transactions={income}
+                categoryNameById={categoryNameById}
+                debtNameById={debtNameById}
+                onEdit={setEditing}
+                onDelete={setDeleting}
+              />
+            )}
             <TransactionTable
               kind="expense"
               transactions={expense}

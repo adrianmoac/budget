@@ -9,6 +9,14 @@ interface PeriodTotalsBarProps {
   balanceCents: number;
   investedCents: number;
   loading?: boolean;
+  /**
+   * Set while a category filter is active. Income carries no category (D11), so a
+   * category-scoped view has no income and no meaningful balance — those tiles are
+   * dropped rather than rendered as a misleading zero, keeping the AC that period
+   * totals equal the sum of the displayed rows. "Invertido" is an independent
+   * month fact and is unaffected by any table filter, so it stays.
+   */
+  expensesOnly?: boolean;
 }
 
 /** FR-14/15: period totals — income, expense, balance, invested this month. */
@@ -18,14 +26,20 @@ export function PeriodTotalsBar({
   balanceCents,
   investedCents,
   loading = false,
+  expensesOnly = false,
 }: PeriodTotalsBarProps) {
   const stats: { label: string; value: number; tone?: 'income' | 'expense' | 'balance' }[] =
-    [
-      { label: 'Ingresos', value: incomeCents, tone: 'income' },
-      { label: 'Gastos', value: expenseCents, tone: 'expense' },
-      { label: 'Balance', value: balanceCents, tone: 'balance' },
-      { label: 'Invertido', value: investedCents },
-    ];
+    expensesOnly
+      ? [
+          { label: 'Gastos (categoría)', value: expenseCents, tone: 'expense' },
+          { label: 'Invertido', value: investedCents },
+        ]
+      : [
+          { label: 'Ingresos', value: incomeCents, tone: 'income' },
+          { label: 'Gastos', value: expenseCents, tone: 'expense' },
+          { label: 'Balance', value: balanceCents, tone: 'balance' },
+          { label: 'Invertido', value: investedCents },
+        ];
 
   return (
     <Card>
