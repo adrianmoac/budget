@@ -70,7 +70,10 @@ function toDefaults(item?: RecommendedItem): RecommendedItemFormInput {
     expectedPesos: Number.NaN,
     window_start: todayISOMX(),
     window_end: '',
-    repeat_mode: 'monthly',
+    // A new recommendation defaults to a one-off. Only the form default changes —
+    // the recommended_items.repeat_mode column keeps its 'monthly' default, which is
+    // the backward-compatible value for rows written before the column existed.
+    repeat_mode: 'none',
   };
 }
 
