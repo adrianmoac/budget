@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Pencil, Trash2 } from 'lucide-react';
 import { RecurrenceBadge } from '@/components/RecurrenceBadge';
 import { DebtBadge } from '@/components/month/DebtBadge';
 import { EmptyState } from '@/components/states';
@@ -12,6 +12,7 @@ import {
 import { formatDateMX } from '@/domain/date';
 import { formatMXN } from '@/domain/money';
 import type { Transaction, TxType } from '@/domain/types';
+import { cn } from '@/lib/utils';
 
 interface TransactionTableProps {
   kind: TxType;
@@ -32,17 +33,31 @@ export function TransactionTable({
   onEdit,
   onDelete,
 }: TransactionTableProps) {
-  const title = kind === 'income' ? 'Ingresos' : 'Gastos';
+  const isIncome = kind === 'income';
+  const title = isIncome ? 'Ingresos' : 'Gastos';
   // Income carries no category (0022), so the column is dropped from that table
   // rather than rendered as a always-empty placeholder.
-  const showCategory = kind !== 'income';
+  const showCategory = !isIncome;
+  const Direction = isIncome ? ArrowDownLeft : ArrowUpRight;
 
   return (
     // min-w-0: as a grid item the card defaults to min-width:auto, which refuses to
     // shrink below the table's intrinsic width — the scroll wrapper below then never
     // gets a narrow box to scroll inside and the whole page scrolls sideways instead.
     <Card className="min-w-0">
-      <CardHeader className="pb-2">
+      {/* Same green/red language PeriodTotalsBar already uses for the period totals.
+          The arrow carries the same meaning as the tint, so the distinction does not
+          rest on colour alone. rounded-t-lg keeps the fill inside the card's corners. */}
+      <CardHeader
+        className={cn(
+          'flex flex-row items-center gap-2 space-y-0 rounded-t-lg border-b pb-2 pt-4',
+          isIncome ? 'bg-success/10' : 'bg-destructive/10',
+        )}
+      >
+        <Direction
+          aria-hidden="true"
+          className={cn('h-4 w-4', isIncome ? 'text-success' : 'text-destructive')}
+        />
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
@@ -92,7 +107,12 @@ export function TransactionTable({
                         {(tx.category_id && categoryNameById.get(tx.category_id)) ?? '—'}
                       </td>
                     ) : null}
-                    <td className="px-4 py-2 text-right font-medium tabular-nums">
+                    <td
+                      className={cn(
+                        'whitespace-nowrap px-4 py-2 text-right font-medium tabular-nums',
+                        isIncome ? 'text-success' : 'text-destructive',
+                      )}
+                    >
                       {formatMXN(tx.amount_cents)}
                     </td>
                     <td className="px-4 py-2">

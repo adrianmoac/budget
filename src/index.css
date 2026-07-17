@@ -18,7 +18,10 @@
     --accent-foreground: 222 47% 11%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
-    --success: 142 71% 35%;
+    /* L=30% gives 4.84:1 on white — WCAG AA for normal text, and level with
+       --destructive's 4.80:1 so income and expense read with equal weight. At the
+       previous 35% it measured 3.68:1 and failed wherever it was used as text. */
+    --success: 142 71% 30%;
     --success-foreground: 210 40% 98%;
     --border: 214 32% 91%;
     --input: 214 32% 91%;
