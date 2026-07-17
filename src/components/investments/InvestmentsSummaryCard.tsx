@@ -10,7 +10,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { computeInterest } from '@/domain/investments';
 import { formatMXN } from '@/domain/money';
 import type { Investment } from '@/domain/types';
-import { useTotals } from '@/hooks/useTotals';
 
 interface InvestmentsSummaryCardProps {
   investments: Investment[];
@@ -27,23 +26,28 @@ function formatPercent(percent: number): string {
  * figure, total invested and `totalInterestMoney` as supporting lines.
  *
  * Deliberately read-only and vehicle-list-free — the table directly below already
- * renders every vehicle with an editable market value. The grand total invested
- * comes from the trigger-maintained `totals` row (§7.7), never a client-side sum of
- * the vehicles; market value has no saved total, so it is summed here (D1, §7.1).
+ * renders every vehicle with an editable market value.
+ *
+ * Both grand totals are summed from the vehicle rows: market value has no saved
+ * total, and total invested is summed too so the headline always agrees with the
+ * "Aportado" column in the table below. That departs from §7.7 (which sourced it
+ * from the trigger-maintained `totals` row) — a read-side choice only; the client
+ * still never writes either column. Mirrors InvestedSummaryCard on the dashboard.
  */
 export function InvestmentsSummaryCard({
   investments,
   loading,
 }: InvestmentsSummaryCardProps) {
-  const totalsQuery = useTotals();
-
   const totalMarketValue = investments.reduce(
     (sum, inv) => sum + inv.market_value_cents,
     0,
   );
-  const totalInvested = totalsQuery.data?.total_invested_cents ?? 0;
+  const totalInvested = investments.reduce(
+    (sum, inv) => sum + inv.contributed_total_cents,
+    0,
+  );
   const interest = computeInterest(totalMarketValue, totalInvested);
-  const pending = loading || totalsQuery.isPending;
+  const pending = loading;
 
   return (
     <Card>

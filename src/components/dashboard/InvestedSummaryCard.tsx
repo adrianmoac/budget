@@ -16,7 +16,6 @@ import { computeInterest } from '@/domain/investments';
 import { formatMXN, fromCentavos, toCentavos } from '@/domain/money';
 import type { Investment } from '@/domain/types';
 import { useInvestments, useUpdateMarketValue } from '@/hooks/useInvestments';
-import { useTotals } from '@/hooks/useTotals';
 import { toast } from '@/store/toast';
 
 function formatPercent(percent: number): string {
@@ -28,12 +27,23 @@ function formatPercent(percent: number): string {
  * FR-17/18: total invested per vehicle + grand total, market value, and
  * `totalInterestMoney` in amount and %. Interest % is hidden (not zero) when
  * nothing is invested, with an explanatory tooltip (AC-Interest-zero).
+ *
+ * "Total invertido" sums `investments.contributed_total_cents` rather than reading
+ * `totals.total_invested_cents`, so the headline always equals the per-vehicle
+ * "Aportado" rows listed directly beneath it. Both columns are maintained by the
+ * same trigger (0012) and agree in a consistent database; summing the vehicles
+ * means the card cannot contradict itself when they diverge. Market value is summed
+ * the same way (it has no saved total), so the two figures now share one source.
+ *
+ * Trade-off, deliberate: this departs from "the client only reads saved totals"
+ * (locked decision #2 / §7.7). It is a read-side choice only — the client still
+ * never writes either column — and `reconciliation` remains the check on
+ * `totals.total_invested_cents`.
  */
 export function InvestedSummaryCard() {
   const investmentsQuery = useInvestments();
-  const totalsQuery = useTotals();
 
-  if (investmentsQuery.isError || totalsQuery.isError) {
+  if (investmentsQuery.isError) {
     return (
       <Card>
         <CardHeader>
@@ -42,10 +52,7 @@ export function InvestedSummaryCard() {
         <CardContent>
           <ErrorState
             message="No se pudieron cargar las inversiones"
-            onRetry={() => {
-              void investmentsQuery.refetch();
-              void totalsQuery.refetch();
-            }}
+            onRetry={() => void investmentsQuery.refetch()}
           />
         </CardContent>
       </Card>
@@ -53,12 +60,12 @@ export function InvestedSummaryCard() {
   }
 
   const investments = investmentsQuery.data;
-  const totals = totalsQuery.data;
-  const loading = investmentsQuery.isPending || totalsQuery.isPending;
+  const loading = investmentsQuery.isPending;
 
   const totalMarketValue =
     investments?.reduce((sum, inv) => sum + inv.market_value_cents, 0) ?? 0;
-  const totalInvested = totals?.total_invested_cents ?? 0;
+  const totalInvested =
+    investments?.reduce((sum, inv) => sum + inv.contributed_total_cents, 0) ?? 0;
   const interest = computeInterest(totalMarketValue, totalInvested);
 
   return (

@@ -52,6 +52,7 @@ These were confirmed by the product owner and are not re-litigated:
 | D15 | **Pending vs. past split** | Past = `is_expired OR is_covered`; pending = everything else. The three status flags are **independent facts** and coverage is never inferred from absence in the "missing" list — that list also omits items which are merely *not due* (a `yearly` item is absent 11 months a year), which would misfile them as past. Accepted consequence: a `monthly` item moves between the two tables as it is covered each month, and the past table mixes "done this month" with "expired" — hence its label, *"Ya registradas o vencidas"*. |
 | D16 | **Completing a recommendation in one click** | The banner's *Completada* button writes a plain transaction — **no RPC**: it is a single insert, so there is no multi-step atomicity to protect (contrast §7.2). It only ever fills in what the user would have typed: the item's own description (verbatim — being the match key, that is precisely what then clears the item), its `expected_amount_cents`, dated today; `recurrence` = `recurrent` for a repeating item, `variable` for a one-off. <br>**Nothing is invented.** With no `expected_amount_cents` there is no honest amount to write, so it opens the prefilled `EntryForm` and asks for that one unknown field instead of guessing. <br>**Category fallback:** an expense MUST carry a category (D11) but a recommendation's category is *optional*, so a category-less expense item resolves to **Otros** — the category that exists for exactly this. Income always resolves to `null`. |
 | D17 | **Category filter is expenses-only** | Income carries no category (D11), so a category-scoped month view has **no income and no meaningful balance**. Selecting a category therefore hides the income table and drops the *Ingresos* / *Balance* tiles rather than rendering a `$0` income beside a filtered expense total — which would make *Balance* read as full-income − filtered-expense, a number that means nothing. *Invertido* stays: it is an independent month fact that no table filter touches. This preserves **AC-Month/Year views** (*period totals equal the sum of the displayed rows*). |
+| D18 | **Where the displayed grand total invested is read from** | ~~`totals.total_invested_cents`.~~ <br>**Superseded (UI-only, no migration): the UI sums `investments.contributed_total_cents` across the vehicles.** Both columns are written by the same trigger (0012) and are equal in a consistent database, so this changes the *source*, not the definition. <br>*Why:* the card already summed `market_value_cents` client-side (market value has no saved total) and rendered *Aportado* per vehicle from `contributed_total_cents`. Reading the grand total from a third place — the `totals` row — meant one card mixed two sources and computed `totalInterestMoney` **across** them, so the headline could contradict the vehicle rows printed directly beneath it. Summing the vehicles makes the card internally consistent by construction: the headline is the sum of what it lists. <br>**Scope:** read-side only. The client still **never writes** `totals` or `contributed_total_cents` (locked decision #2 is intact — integrity still lives in Postgres). <br>**Accepted cost:** `totals.total_invested_cents` is no longer displayed anywhere, so a drift between it and the vehicles is no longer visible in the UI — and the reconciliation monitor cannot see that class of drift either (§15, §19). |
 
 ### 0.2 Assumptions
 
@@ -70,7 +71,7 @@ These were confirmed by the product owner and are not re-litigated:
 
 The Budget Manager is an **installable, online-only Progressive Web App** for a single household budget, built with **React + Vite** on the front end and **Supabase** (managed Postgres, Auth, Row-Level Security, Edge Functions) as the entire backend. It tracks expenses, incomes, debts, and investment contributions in **Mexican pesos stored as integer centavos**, and surfaces an always-current picture of liquid cash on hand, total invested, market value, and pending debts.
 
-The defining architectural stance is that **financial integrity lives in the database, not the client.** A denormalized `totals` row holds `liquidCash` and `totalInvested`; Postgres triggers atomically adjust these on every transaction and contribution insert/update/delete (including the update-by-delta case). Multi-step money operations that must be all-or-nothing — applying a debt payment (which both creates a cash-affecting transaction *and* decrements the debt's remaining months) and deleting a category (which must reassign orphaned records to "Otros") — run inside **single Postgres RPC functions**, giving transactional atomicity for free. The client only ever *reads* the saved totals.
+The defining architectural stance is that **financial integrity lives in the database, not the client.** A denormalized `totals` row holds `liquidCash` and `totalInvested`; Postgres triggers atomically adjust these on every transaction and contribution insert/update/delete (including the update-by-delta case). Multi-step money operations that must be all-or-nothing — applying a debt payment (which both creates a cash-affecting transaction *and* decrements the debt's remaining months) and deleting a category (which must reassign orphaned records to "Otros") — run inside **single Postgres RPC functions**, giving transactional atomicity for free. The client only ever *reads* these values — it never writes a total, and never re-derives one from raw line items. (Since D18 the invested figure the dashboard *displays* is summed from the vehicles' trigger-maintained `contributed_total_cents` rather than the `totals` row; `liquidCash` still comes straight from `totals`. See §7.7 and §21.)
 
 Security is enforced via **Row-Level Security keyed to `auth.uid()`** on every table, so although v1 is single-user, a second user could be added with zero schema rewrites. The public `anon` key ships to the browser (by design); the `service_role` key never leaves the server. Money is integer centavos everywhere and formatted to MXN only at the display layer via `Intl.NumberFormat`.
 
@@ -101,7 +102,7 @@ Security is enforced via **Row-Level Security keyed to `auth.uid()`** on every t
 
 **Main / dashboard**
 - FR-16 Show **liquidCash** (all-time income − expense), read from the saved denormalized total.
-- FR-17 Show **totalInvested** per vehicle and grand total.
+- FR-17 Show **totalInvested** per vehicle and grand total. **Revised (D18): the grand total displayed is the sum of the per-vehicle figures**, so the two can never disagree on screen.
 - FR-18 Show **market value** per vehicle and **totalInterestMoney** (= totalMarketValue − totalInvested) in amount and %.
 - FR-19 Show **pending debts for the month**.
 
@@ -196,8 +197,8 @@ flowchart TB
 ```
 
 **Key data-flow rules**
-- Every read of `liquidCash`/`totalInvested` hits the **saved totals row** (never a client-side sum).
-- Every mutation returns; the client then **invalidates the totals query** so the dashboard refetches the authoritative value.
+- Every read of `liquidCash` hits the **saved totals row** (never a client-side sum of `transactions`). **Revised (D18):** the displayed **grand total invested** is summed from `investments.contributed_total_cents` instead — an aggregate of per-vehicle *trigger-maintained* columns (O(vehicles), a handful of rows), not a re-sum of the underlying `investment_contributions`. The prohibition that matters is unchanged: **the client never re-derives a total from raw line items, and never writes one.**
+- Every mutation returns; the client then **invalidates the totals query** so the dashboard refetches the authoritative value. A contribution additionally invalidates `['investments']`, which is what refreshes the invested headline under D18.
 - Multi-step money ops go through **one RPC call = one DB transaction**.
 
 ---
@@ -241,7 +242,8 @@ A single-row-per-user **`totals`** table holds `liquid_cash_cents` and `total_in
 
 Analogous triggers on `investment_contributions` maintain `total_invested_cents` **and** the per-vehicle running total on `investments.contributed_total_cents` (same insert/delete/update-by-delta pattern). **Since 0025 the same trigger also applies each delta to `investments.market_value_cents`** (D1), across every branch including the move-between-vehicles case. Decrementing paths clamp with `greatest(0, …)`, so a hand-lowered market value followed by a contribution delete floors at zero instead of going negative; a `market_value_cents >= 0` CHECK guards direct client writes.
 
-`totalInterestMoney` is **not stored** — it is derived at read time: `SUM(investments.market_value_cents) − total_invested_cents`, with percentage `= totalInterestMoney / total_invested_cents × 100` (returns 0/undefined when `total_invested_cents = 0`).
+`totalInterestMoney` is **not stored** — it is derived at read time. **Revised (D18):** both sides of the subtraction are now summed from the same vehicle list —
+`SUM(investments.market_value_cents) − SUM(investments.contributed_total_cents)`, with percentage `= totalInterestMoney / SUM(contributed_total_cents) × 100` (hidden, not zero, when that divisor is 0 — AC-Interest-zero). Previously the right-hand side read `totals.total_invested_cents`, which mixed two sources inside one subtraction; the definition (market − invested) is unchanged.
 
 > **Concurrency note:** trigger updates to the single totals row serialize on that row's lock. At personal scale this is a non-issue and guarantees correctness under any interleaving.
 
@@ -320,7 +322,9 @@ A plain `recurrence` enum column (`recurrent` | `variable`) on `transactions`, u
 - **`investment_contributions`** = money-add events (`investment_id`, `amount_cents`, `contrib_date`).
 - **"Invested this month"** = `SUM(amount_cents)` of contributions where `contrib_date` in month (indexed).
 - **"Invested per vehicle"** = `investments.contributed_total_cents` (trigger-maintained, O(1)).
-- **Grand total invested** = `totals.total_invested_cents` (trigger-maintained).
+- **Grand total invested** — two figures that are equal in a consistent database, and must not be confused:
+  - **stored:** `totals.total_invested_cents` (trigger-maintained). Still written by 0012 and still the column the **reconciliation** check compares against `SUM(investment_contributions)` (§15). **No longer read by the UI** (D18).
+  - **displayed:** `SUM(investments.contributed_total_cents)`, summed client-side over the vehicle list the card already fetches (**Revised — D18**), so the headline equals the *Aportado* rows beneath it.
 - **Market value / interest** = per-vehicle `market_value_cents` (contribution-maintained + manual); `totalInterestMoney` derived (§7.1).
 - Contributions **do not** affect `liquidCash` (D2).
 
@@ -532,6 +536,10 @@ FX, bank aggregation, and breached-password checks (HIBP) are future integration
 - **DB/Edge:** Supabase Postgres/API/Edge logs. RPCs raise descriptive typed errors (`cannot_delete_protected_category`, `debt_not_active`) mapped to user messages. Never log secret values or tokens.
 - **Client:** central error boundary + TanStack Query `onError` toasts; distinguish network-offline (explicit "You're offline" state) from validation vs. server errors.
 - **Invariant monitoring (recommended):** a periodic **reconciliation check** asserting `liquid_cash_cents == SUM(signed_effect(transactions))` and `total_invested_cents == SUM(contributions)`. Any drift is a trigger bug and must alert — the single most valuable monitor in a money app.
+- **What reconciliation does *not* cover (important since D18):** it never inspects `investments.contributed_total_cents` — the column the UI now *displays* as the grand total invested. Two consequences, both real:
+  1. A `contributed_total_cents` that disagrees with this vehicle's `SUM(investment_contributions)` is **invisible** to the monitor. Only `totals.total_invested_cents` is compared.
+  2. Because both sides of the comparison are derived from `investment_contributions`, writing `contributed_total_cents` **directly** (bypassing the trigger, e.g. a hand `UPDATE` when seeding data) leaves `totals.total_invested_cents` and `SUM(contributions)` both at 0 — so reconciliation reports **zero drift while the vehicles hold money**. It reads as healthy because it is blind here, not because the data agrees.
+  Closing this needs a third assertion: `investments.contributed_total_cents == SUM(investment_contributions)` per vehicle, and `SUM(investments.contributed_total_cents) == totals.total_invested_cents`. Not yet built — tracked in §19.
 - **Optional:** Sentry for client error tracking (PII-scrubbed).
 
 ---
@@ -625,7 +633,8 @@ Each phase has a verifiable exit criterion.
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
 | Trigger math bug silently corrupts totals | High | pgTAP for every path incl. update-by-delta & type-flip; reconciliation monitor; triggers are the only totals writer. |
-| Client tries to compute/patch totals | High | Rule: client reads totals, never writes them; code review; consider revoking direct writes to totals columns. |
+| Client tries to compute/patch totals | High | Rule: client reads totals, never writes them; code review; consider revoking direct writes to totals columns. **D18 narrows this rule, it does not lift it:** the client may *sum trigger-maintained aggregate columns it already fetched* (the vehicles' `contributed_total_cents`); it still must never re-derive a total from raw line items, and still never writes. |
+| `contributed_total_cents` written directly, bypassing the trigger | **High** | The realistic path is seeding/importing data by hand (`UPDATE investments SET contributed_total_cents = …`) instead of inserting `investment_contributions`. The trigger never fires, so `totals.total_invested_cents` stays 0 while the vehicles show money. Since D18 the UI displays the vehicles, so **the symptom is now invisible** — and reconciliation is blind to it (§15), reporting zero drift because 0 == 0. Mitigation: treat `contributed_total_cents` as trigger-only (spec §3.1 already says the app MUST NOT write it); repair by inserting real contributions rather than patching the column; add the per-vehicle reconciliation assertion described in §15. |
 | Debt payment partial failure | High | Single RPC = single transaction; atomic by construction. |
 | Category delete leaves orphans / deletes Otros | Medium | RPC guard + `ON DELETE RESTRICT` FK + partial unique index. |
 | Float creep in money | High | Integers everywhere; conversion only at edges; property tests on money helpers. |
@@ -675,8 +684,15 @@ Changes made after the architecture was approved, each signed off by the product
 | **"Desde una recomendación…"** sentinel in the entry form's category dropdown. | D16, FR-28 |
 | **Category filter** on the month view — expenses-only; hides the income table and the Ingresos/Balance tiles. | D17, FR-11 |
 | New recommendations default to **`none`** in the form (the column default stays `monthly`). | D12, FR-24 |
+| **Grand total invested is summed from `investments.contributed_total_cents`** instead of read from `totals.total_invested_cents`, in both `InvestedSummaryCard` (dashboard) and `InvestmentsSummaryCard` (investments page). Neither card reads the `totals` row any more. Schema, triggers and `totals` are untouched — this is a read-side change, which is why it carries no migration. | D18, FR-17, §7.7 |
 
 **Known open item (not a bug, undecided):** a `yearly` item outside its anniversary month is not due, not covered and not expired, so it sits in **Pendientes** for eleven months reading "Pendiente" — correct (it *is* an active recommendation) but it looks actionable when it is not. Surfacing "Próximo: <month> <year>" via the existing `is_due` flag would fix it as a display-only change.
+
+**Known open item (D18 fallout, undecided):** `totals.total_invested_cents` is now **written but never displayed**. It is still trigger-maintained and still the subject of the reconciliation assertion, but no screen reads it, so if it diverges from the vehicles nothing surfaces that. Three coherent endings, none chosen:
+1. **Extend reconciliation** (§15) to assert `SUM(investments.contributed_total_cents) == totals.total_invested_cents` and the per-vehicle equality — keeps the column as an independent cross-check, which is arguably its best remaining use.
+2. **Drop the column** and let `investments` be the sole invested source — simpler, but removes the only value reconciliation currently compares contributions against.
+3. **Leave as-is** — accept a maintained-but-unread column.
+Until one is picked, remember that a clean reconciliation result does **not** attest to the number the UI shows.
 
 **Two lessons worth keeping.**
 
