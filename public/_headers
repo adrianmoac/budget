@@ -1,14 +1,17 @@
 # HTTP security headers for the static PWA shell (architecture §13, CP-7.1).
-# Format read by Netlify and Cloudflare Pages. Vercel users: port these into a
-# `vercel.json` "headers" block instead (see docs/HARDENING.md).
+# Format read by Netlify and Cloudflare Pages ONLY.
 #
-# IMPORTANT: replace YOUR_PROJECT_REF below with the production Supabase project
-# ref so `connect-src` allowlists exactly that origin (and its realtime socket).
-# Everything else is host-agnostic.
+# THE PRODUCTION DEPLOY IS VERCEL, WHICH IGNORES THIS FILE — the live header set is
+# in `vercel.json` (which also carries the SPA "rewrites" this format cannot express).
+# This file is kept so the header set stays portable to Netlify/Cloudflare: if you
+# edit one, edit both, and verify with the curl in docs/HARDENING.md §1.
+#
+# `connect-src` allowlists exactly the production Supabase origin and its realtime
+# socket. If the project ref changes, change it here AND in vercel.json.
 
 /*
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://YOUR_PROJECT_REF.supabase.co wss://YOUR_PROJECT_REF.supabase.co; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://mlmqiopviyrobtemitaz.supabase.co wss://mlmqiopviyrobtemitaz.supabase.co; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
